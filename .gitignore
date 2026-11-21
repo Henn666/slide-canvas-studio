@@ -16,3 +16,4 @@ build/
 preview/
 *.pptx
 *.png
+!assets/*.png

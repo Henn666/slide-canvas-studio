@@ -1,6 +1,39 @@
+<div align="center">
+
 # slide-canvas-studio
 
-An AI-agent skill for building **100% natively editable PowerPoint (`.pptx`) presentations** using a **1280×720 SVG-flavored Python `SlideCanvas` API** that compiles straight to OpenXML via `python-pptx`.
+**1280×720 SVG-flavored Python `SlideCanvas` engine for generating 100% natively editable PowerPoint (`.pptx`) decks.**
+
+Zero binary dependencies · CJK-aware typography · WCAG contrast guard · Dual EMU + PNG verification
+
+</div>
+
+---
+
+## Showcase (Generated 100% by `slide-canvas-studio`)
+
+<div align="center">
+<table>
+  <tr>
+    <td width="33%" align="center">
+      <img src="assets/slide-1.png" alt="SVG-Flavored Python Engine" width="100%" /><br />
+      <sub><b>01 · SVG-Flavored Python Engine</b></sub>
+    </td>
+    <td width="33%" align="center">
+      <img src="assets/slide-2.png" alt="CJK Typography & Contrast Guard" width="100%" /><br />
+      <sub><b>02 · CJK Typography & Contrast Guard</b></sub>
+    </td>
+    <td width="33%" align="center">
+      <img src="assets/slide-3.png" alt="Dual Verification & 5 Style Presets" width="100%" /><br />
+      <sub><b>03 · Dual Verification & 5 Style Presets</b></sub>
+    </td>
+  </tr>
+</table>
+</div>
+
+---
+
+## Key Capabilities
 
 - **SVG Mental Model, Low Token Cost**: Express layouts with Python loops, `polar()`, `c.cols()`, `c.bezier()`, `c.curve()`, `c.donut()`, `#HEX@opacity`, and `grad(...)` with minimal token overhead.
 - **Pure Python OpenXML Generation**: Compiles directly to 100% native, editable PowerPoint shapes via `python-pptx` with zero external CLI tools required.
@@ -15,7 +48,7 @@ An AI-agent skill for building **100% natively editable PowerPoint (`.pptx`) pre
 
 ### 1. Clone into your Agent Skills directory
 ```bash
-git clone https://github.com/<your-username>/slide-canvas-studio.git ~/.gemini/config/skills/slide-canvas-studio
+git clone https://github.com/Henn666/slide-canvas-studio.git ~/.gemini/config/skills/slide-canvas-studio
 cd ~/.gemini/config/skills/slide-canvas-studio
 ```
 
@@ -56,6 +89,7 @@ slide-canvas-studio/
 ├── README.md
 ├── LICENSE
 ├── requirements.txt          # Minimal: python-pptx, Pillow, pymupdf
+├── assets/                   # README showcase slide PNGs
 ├── design-framework/         # Guardrails & 1280x720 SlideCanvas API reference
 ├── styles/                   # Optional reference style profiles (Apple Glass, Bento, Swiss, Neo-Brutalism, Nordic)
 └── scripts/
