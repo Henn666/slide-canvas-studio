@@ -1,0 +1,19 @@
+# Python virtual environments & caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS & Editor temporary files
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Generated outputs (if testing locally)
+build/
+preview/
+*.pptx
+*.png
+!styles/corporate-standard/company-template.pptx
