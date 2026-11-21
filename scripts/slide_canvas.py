@@ -487,12 +487,17 @@ class SlideCanvas:
         for idx, line_str in enumerate(lines):
             p = tf.paragraphs[0] if idx == 0 else tf.add_paragraph()
             p.alignment = p_align
+            p.space_before = Pt(0)
+            p.space_after = Pt(0)
             run = p.add_run()
             run.text = line_str
             run.font.name = fname
             run.font.size = Pt(float(size))
             run.font.bold = bool(bold)
             run.font.color.rgb = rgb
+            rPr = run._r.get_or_add_rPr()
+            if rPr.find(f"{_A_NS}ea") is None:
+                rPr.append(parse_xml(f'<a:ea {nsdecls("a")} typeface="{fname}"/>'))
 
     # -----------------------------------------------------------------------
     # Slide & Chrome Management
@@ -583,6 +588,7 @@ class SlideCanvas:
         font: Optional[str] = None,
         role: Optional[str] = None,
         pad_px: float = 10.0,
+        pad_v_px: Optional[float] = None,
         name: Optional[str] = None,
     ):
         kind = MSO_SHAPE.ROUNDED_RECTANGLE if rx > 0 else MSO_SHAPE.RECTANGLE
@@ -593,7 +599,8 @@ class SlideCanvas:
             shp.adjustments[0] = min(0.49, float(rx) / min(w, h))
         self._apply_style(shp, fill=fill, stroke=stroke)
         if str(text) != "":
-            self._set_text(shp, text, size=size, color=color, bold=bold, align=align, valign=valign, font=font, role=role, pad_x_px=pad_px, pad_v_px=pad_px)
+            v_pad = pad_px if pad_v_px is None else pad_v_px
+            self._set_text(shp, text, size=size, color=color, bold=bold, align=align, valign=valign, font=font, role=role, pad_x_px=pad_px, pad_v_px=v_pad)
         return shp
 
     def pill(
@@ -612,7 +619,7 @@ class SlideCanvas:
         role: Optional[str] = None,
         name: Optional[str] = None,
     ):
-        return self.rect(x, y, w, h, rx=h / 2.0, fill=fill, stroke=stroke, text=text, size=size, color=color, bold=bold, align="center", valign="middle", font=font, role=role, pad_px=4, name=name or f"pill_{self._next_id()}")
+        return self.rect(x, y, w, h, rx=h / 2.0, fill=fill, stroke=stroke, text=text, size=size, color=color, bold=bold, align="center", valign="middle", font=font, role=role, pad_px=6, pad_v_px=0, name=name or f"pill_{self._next_id()}")
 
     def circle(
         self,
