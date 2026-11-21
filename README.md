@@ -57,7 +57,7 @@ slide-canvas-studio/
 ├── LICENSE
 ├── requirements.txt          # Minimal: python-pptx, Pillow, pymupdf
 ├── design-framework/         # Guardrails & 1280x720 SlideCanvas API reference
-├── styles/                   # Optional reference style profiles & sample .pptx template
+├── styles/                   # Optional reference style profiles (Apple Glass, Bento, Swiss, Neo-Brutalism, Nordic)
 └── scripts/
     ├── slide_canvas.py       # 1280x720 SVG-flavored OpenXML canvas engine
     ├── text_measure.py       # CJK + Latin wrapping & height estimator
