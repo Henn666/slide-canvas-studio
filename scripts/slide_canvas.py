@@ -688,14 +688,31 @@ class SlideCanvas:
     def arrow(self, x1: float, y1: float, x2: float, y2: float, stroke: Any = "accent:2", head_size: float = 9.0, name: Optional[str] = None):
         st = self.parse_stroke(stroke)
         c_expr = f"#{st['hex']}@{st['opacity']}" if st.get("opacity") is not None else f"#{st.get('hex', self.resolve_hex('accent'))}"
-        ang = math.atan2(y2 - y1, x2 - x1)
-        tip = (x2, y2)
-        shaft_end = (x2 - head_size * 0.85 * math.cos(ang), y2 - head_size * 0.85 * math.sin(ang))
-        idx = self._next_id()
-        self.line(x1, y1, shaft_end[0], shaft_end[1], stroke=stroke, name=f"vec_line_{idx}_shaft")
-        p1 = (x2 - head_size * math.cos(ang - math.pi / 6.5), y2 - head_size * math.sin(ang - math.pi / 6.5))
-        p2 = (x2 - head_size * math.cos(ang + math.pi / 6.5), y2 - head_size * math.sin(ang + math.pi / 6.5))
-        return self._build_poly([tip, p1, p2], True, fill=c_expr, stroke="none", name=name or f"vec_arrow_{idx}")
+        dx, dy = x2 - x1, y2 - y1
+        dist = math.hypot(dx, dy)
+        if dist < 1e-3:
+            return None
+        ux, uy = dx / dist, dy / dist
+        nx, ny = -uy, ux  # unit normal perpendicular to shaft
+
+        # Convert stroke width from pt to 1280x720 canvas px (1 px = 0.75 pt)
+        half_w = max(0.75, (float(st.get("width", 2.0)) * (4.0 / 3.0)) / 2.0)
+        head_len = min(head_size * 0.9, dist * 0.65)
+        head_half_w = max(half_w + 1.5, head_size * math.sin(math.pi / 6.5))
+
+        bx = x2 - ux * head_len
+        by = y2 - uy * head_len
+
+        pts = [
+            (x1 + nx * half_w, y1 + ny * half_w),
+            (bx + nx * half_w, by + ny * half_w),
+            (bx + nx * head_half_w, by + ny * head_half_w),
+            (x2, y2),
+            (bx - nx * head_half_w, by - ny * head_half_w),
+            (bx - nx * half_w, by - ny * half_w),
+            (x1 - nx * half_w, y1 - ny * half_w),
+        ]
+        return self._build_poly(pts, True, fill=c_expr, stroke="none", name=name or f"vec_arrow_{self._next_id()}")
 
     def polyline(self, points: List[Tuple[float, float]], stroke: Any = "accent:2", fill: Any = "none", closed: bool = False, name: Optional[str] = None):
         return self._build_poly(points, closed, fill, stroke, name or f"vec_poly_{self._next_id()}")
