@@ -26,7 +26,7 @@ description: Build high-craft, 100% natively editable PowerPoint (.pptx) present
 | :--- | :--- | :--- | :--- |
 | **Phase 0** | 初始化專案目錄與 `design/build_deck.py` | `design-framework/workflow-phases.md` | `python3 <skill>/scripts/init_project.py --project <dir>` |
 | **Phase 1** | 濃縮敘事脈絡為 `source/brief.md` | `design-framework/content-density-rules.md` | （撰寫 `<project>/source/brief.md`） |
-| **Phase 2** | 設計色票/版面並撰寫 `design/build_deck.py` | 1. **僅使用者指定時**：`styles/<style>/style.md`<br>2. `design-framework/color-and-type-constraints.md`<br>3. `design-framework/layout-and-grid-rules.md`<br>4. `design-framework/native-vs-visual-policy.md` | 若套用 `.pptx` 企業母片：<br>`inspect_template.py --pptx <path>` |
+| **Phase 2** | 設計色票/版面並撰寫 `design/build_deck.py` | 1. **僅使用者指定時**：`styles/<style>/style.md`<br>2. `design-framework/color-and-type-constraints.md`<br>3. `design-framework/layout-and-grid-rules.md`<br>4. `design-framework/api-primitives.md`<br>5. **僅架構圖/向量圖表頁**：`design-framework/api-diagrams-and-connectors.md`<br>6. `design-framework/native-vs-visual-policy.md` | 若套用 `.pptx` 企業母片：<br>`inspect_template.py --pptx <path>` |
 | **Phase 3** | 校準外部圖片（若有）+ 執行建置 `.pptx` | （無） | `fit_visual_asset.py`（選用）＋ `python3 <project>/design/build_deck.py --all` |
 | **Phase 4** | EMU 幾何檢查 + PNG 視覺驗收 → 按需 `--slide N` 重繪 | `design-framework/critique-rubric.md` | `dump_slide_layout.py` + `render_single_slide.py` |
 
@@ -34,10 +34,10 @@ description: Build high-craft, 100% natively editable PowerPoint (.pptx) present
 
 ## 三、 Skill 目錄結構
 
-- `design-framework/`：6 份極簡通用設計護欄（與 `SlideCanvas` 1280×720 API 參考）。
+- `design-framework/`：分類設計護欄與 `SlideCanvas` 按需 API 參考手冊（含基礎原語與架構連線指南）。
 - `styles/`：參考風格目錄（**僅使用者明確指定時參考**）。
 - `scripts/`：7 支單一職責腳本：
-  - `slide_canvas.py`：核心 `1280×720` SVG 風格繪圖 API（OpenXML 直出、`#HEX@opacity`、`grad(...)`、`path()`、`curve()`、`donut()`、`text_auto()`）。
+  - `slide_canvas.py`：核心 `1280×720` SVG 風格繪圖 API（OpenXML 直出、Node Registry + `connect()`、`#HEX@opacity`、`grad(...)`、`path()`、`curve()`、`donut()`、`text_auto()`）。
   - `text_measure.py`：CJK 混排禁則與行高估算引擎。
   - `dump_slide_layout.py` & `render_single_slide.py`：雙重驗收工具。
   - `init_project.py`、`fit_visual_asset.py`、`inspect_template.py`。
