@@ -16,16 +16,16 @@ Zero binary dependencies · CJK-aware typography · WCAG contrast guard · Dual 
 <table>
   <tr>
     <td width="33%" align="center">
-      <img src="assets/slide-1.png" alt="SVG-Flavored Python Engine" width="100%" /><br />
-      <sub><b>01 · SVG-Flavored Python Engine</b></sub>
+      <img src="assets/slide-1.png" alt="Studio-Quality Slides, 100% Editable in PowerPoint" width="100%" /><br />
+      <sub><b>01 · 100% Editable in PowerPoint</b></sub>
     </td>
     <td width="33%" align="center">
-      <img src="assets/slide-2.png" alt="CJK Typography & Contrast Guard" width="100%" /><br />
-      <sub><b>02 · CJK Typography & Contrast Guard</b></sub>
+      <img src="assets/slide-2.png" alt="Smart Auto-Layout & Readability" width="100%" /><br />
+      <sub><b>02 · Smart Auto-Layout & Readability</b></sub>
     </td>
     <td width="33%" align="center">
-      <img src="assets/slide-3.png" alt="Dual Verification & 5 Style Presets" width="100%" /><br />
-      <sub><b>03 · Dual Verification & 5 Style Presets</b></sub>
+      <img src="assets/slide-3.png" alt="5 Curated Designer Styles" width="100%" /><br />
+      <sub><b>03 · 5 Curated Designer Styles</b></sub>
     </td>
   </tr>
 </table>

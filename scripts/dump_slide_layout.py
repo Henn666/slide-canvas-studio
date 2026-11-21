@@ -86,8 +86,8 @@ def is_intentional_container(outer: dict, inner: dict) -> bool:
     if area_outer <= area_inner * 1.15:
         return False
     inter = intersection_area(outer, inner)
-    # If >= 85% of inner lies inside outer:
-    if inter / area_inner >= 0.85:
+    # Require >= 98% of inner to lie inside outer so protruding children are caught:
+    if inter / area_inner >= 0.98:
         # Container either has no text (like col_1_card) or top-aligned header text above inner
         if not outer["text"].strip():
             return True
@@ -140,8 +140,24 @@ def dump_slide_layout(pptx_path: str, slide_num: int, out_json: str = None) -> d
             el_type = "shape"
             text_val = shp.text_frame.text if shp.has_text_frame else ""
             font_pt = extract_shape_font_pt(shp, 12.5)
-            est_h = estimate_text_height_cm(text_val, font_pt, w_cm) if text_val.strip() else 0.0
-            is_overflow = bool(text_val.strip() and est_h > h_cm * 1.18 and not decorative)
+            if text_val.strip():
+                is_pill = name.lower().startswith("pill_")
+                is_stat_val = name.lower().startswith("stat_val_")
+                _, est_h, line_count = wrap_and_measure_text(
+                    text_val,
+                    box_w_cm=w_cm,
+                    font_size_pt=font_pt,
+                    line_height=1.18 if is_stat_val else 1.32,
+                    pad_v_cm=0.04 if (is_pill or is_stat_val) else 0.14,
+                )
+            else:
+                est_h, line_count = 0.0, 0
+            is_pill_wrap = name.lower().startswith("pill_") and h_cm <= 0.95 and line_count > 1
+            is_overflow = bool(
+                text_val.strip()
+                and not decorative
+                and (est_h > h_cm * 1.05 or is_pill_wrap)
+            )
 
         is_oob = False
         if not decorative:
@@ -208,7 +224,45 @@ def dump_slide_layout(pptx_path: str, slide_num: int, out_json: str = None) -> d
                     }
                 )
 
-    # Background fill & text contrast check
+    # Container boundary check: detect child elements protruding outside their parent card_bg_*
+    container_overflows = []
+    container_cards = [
+        e for e in elements
+        if ("card_bg" in e["name"].lower() or (not e["text"].strip() and "box_" in e["name"].lower()))
+        and "glow" not in e["name"].lower()
+        and e["w_cm"] >= 1.8 and e["h_cm"] >= 1.0
+    ]
+    for el in non_dec:
+        cx = el["x_cm"] + el["w_cm"] / 2.0
+        top_anchor_y = min(el["bottom_cm"], el["y_cm"] + 0.15)
+        el_area = el["w_cm"] * el["h_cm"]
+        enclosing = [
+            c for c in container_cards
+            if c["index"] < el["index"]
+            and (c["w_cm"] * c["h_cm"]) > el_area * 1.15
+            and c["x_cm"] <= cx <= c["right_cm"]
+            and c["y_cm"] <= top_anchor_y <= c["bottom_cm"]
+        ]
+        if enclosing:
+            parent = min(enclosing, key=lambda c: c["w_cm"] * c["h_cm"])
+            eff_bottom = max(el["bottom_cm"], round(el["y_cm"] + el["estimated_text_h_cm"], 3))
+            if (
+                eff_bottom > parent["bottom_cm"] - 0.04
+                or el["right_cm"] > parent["right_cm"] + 0.05
+                or el["x_cm"] < parent["x_cm"] - 0.05
+                or el["y_cm"] < parent["y_cm"] - 0.05
+            ):
+                container_overflows.append(
+                    {
+                        "child": el["name"],
+                        "container": parent["name"],
+                        "child_bounds": [el["x_cm"], el["y_cm"], el["right_cm"], eff_bottom],
+                        "container_bounds": [parent["x_cm"], parent["y_cm"], parent["right_cm"], parent["bottom_cm"]],
+                        "text_preview": el["text"][:50],
+                    }
+                )
+
+    # Background fill & container-aware text contrast check
     _A_NS = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
     _P_NS = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
 
@@ -221,6 +275,22 @@ def dump_slide_layout(pptx_path: str, slide_num: int, out_json: str = None) -> d
         l1, l2 = _rel_lum(h1), _rel_lum(h2)
         return round((max(l1, l2) + 0.05) / (min(l1, l2) + 0.05), 2)
 
+    def _extract_solid_hex(shp_obj):
+        sp_pr = getattr(shp_obj._element, "spPr", None)
+        if sp_pr is None:
+            return None
+        srgb = sp_pr.find(f"{_A_NS}solidFill/{_A_NS}srgbClr")
+        if srgb is not None and srgb.get("val"):
+            alpha_el = srgb.find(f"{_A_NS}alpha")
+            if alpha_el is not None and alpha_el.get("val"):
+                try:
+                    if int(alpha_el.get("val")) < 50000:
+                        return None
+                except ValueError:
+                    pass
+            return srgb.get("val").upper()
+        return None
+
     bg_hex = "FFFFFF"
     bg_pr = slide.background._element.find(f"{_P_NS}bg/{_P_NS}bgPr")
     if bg_pr is not None:
@@ -232,30 +302,47 @@ def dump_slide_layout(pptx_path: str, slide_num: int, out_json: str = None) -> d
             if gs is not None and gs.get("val"):
                 bg_hex = gs.get("val").upper()
 
+    filled_stack = []
     contrast_issues = []
-    for shp in slide.shapes:
+    for idx_s, shp in enumerate(slide.shapes, start=1):
+        el_meta = elements[idx_s - 1]
+        own_hex = _extract_solid_hex(shp)
         if shp.has_text_frame and shp.text_frame.text.strip():
-            # Only check shapes without opaque solid fill against slide background
-            sp_pr = getattr(shp._element, "spPr", None)
-            has_own_fill = sp_pr is not None and sp_pr.find(f"{_A_NS}solidFill/{_A_NS}srgbClr") is not None
-            if not has_own_fill:
-                for p in shp.text_frame.paragraphs:
-                    for r in p.runs:
-                        if r.text.strip() and r.font.color and r.font.color.rgb:
-                            fg_hex = str(r.font.color.rgb).upper()
-                            ratio = _cr(bg_hex, fg_hex)
-                            if ratio < 3.0:
-                                contrast_issues.append({
-                                    "name": shp.name or f"shape_{shp.shape_id}",
-                                    "bg_hex": bg_hex,
-                                    "fg_hex": fg_hex,
-                                    "contrast_ratio": ratio,
-                                    "text_preview": r.text[:40],
-                                })
-                            break
-                    break
+            eff_bg = own_hex
+            if not eff_bg:
+                cx = el_meta["x_cm"] + el_meta["w_cm"] / 2.0
+                cy = el_meta["y_cm"] + el_meta["h_cm"] / 2.0
+                for prev_box, prev_hex in reversed(filled_stack):
+                    if prev_box["x_cm"] <= cx <= prev_box["right_cm"] and prev_box["y_cm"] <= cy <= prev_box["bottom_cm"]:
+                        eff_bg = prev_hex
+                        break
+            if not eff_bg:
+                eff_bg = bg_hex
+            for p in shp.text_frame.paragraphs:
+                for r in p.runs:
+                    if r.text.strip() and r.font.color and r.font.color.rgb:
+                        fg_hex = str(r.font.color.rgb).upper()
+                        ratio = _cr(eff_bg, fg_hex)
+                        if ratio < 3.0:
+                            contrast_issues.append({
+                                "name": shp.name or f"shape_{shp.shape_id}",
+                                "bg_hex": eff_bg,
+                                "fg_hex": fg_hex,
+                                "contrast_ratio": ratio,
+                                "text_preview": r.text[:40],
+                            })
+                        break
+                break
+        if own_hex and "glow" not in el_meta["name"].lower():
+            filled_stack.append((el_meta, own_hex))
 
-    status = "PASS" if (len(out_of_bounds) == 0 and len(overlap_pairs) == 0 and len(overflow_risks) == 0 and len(contrast_issues) == 0) else "WARN"
+    status = "PASS" if (
+        len(out_of_bounds) == 0
+        and len(overlap_pairs) == 0
+        and len(container_overflows) == 0
+        and len(overflow_risks) == 0
+        and len(contrast_issues) == 0
+    ) else "WARN"
 
     if not out_json:
         project_dir = os.path.dirname(os.path.dirname(pptx_path))
@@ -273,12 +360,14 @@ def dump_slide_layout(pptx_path: str, slide_num: int, out_json: str = None) -> d
             "content_elements": len(non_dec),
             "out_of_bounds_count": len(out_of_bounds),
             "overlap_count": len(overlap_pairs),
+            "container_overflow_count": len(container_overflows),
             "overflow_risk_count": len(overflow_risks),
             "contrast_issue_count": len(contrast_issues),
         },
         "issues": {
             "out_of_bounds": out_of_bounds,
             "overlap_pairs": overlap_pairs,
+            "container_overflows": container_overflows,
             "overflow_risks": overflow_risks,
             "contrast_issues": contrast_issues,
         },

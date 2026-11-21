@@ -23,27 +23,29 @@ def measure_text_width_cm(text: str, font_size_pt: float, bold: bool = False) ->
     if not text:
         return 0.0
     em_cm = font_size_pt * 0.0352778
-    bold_factor = 1.05 if bold else 1.0
+    bold_factor = 1.06 if bold else 1.0
     total_units = 0.0
     for ch in text:
         if ch == "\n":
             continue
         if ch == " ":
-            total_units += 0.28
-        elif unicodedata.east_asian_width(ch) in ("W", "F"):
-            total_units += 1.02
-        elif ch.isupper():
-            total_units += 0.68
-        elif ch.isdigit():
-            total_units += 0.56
-        elif ch in "ilIjtf.,:;'|!":
             total_units += 0.30
-        elif ch in "mwMW@#%&":
+        elif unicodedata.east_asian_width(ch) in ("W", "F"):
+            total_units += 1.03
+        elif ch in "MW@#%&":
+            total_units += 0.86
+        elif ch.isupper():
+            total_units += 0.67
+        elif ch.isdigit():
+            total_units += 0.58
+        elif ch in "ilIjtf.,:;'|!":
+            total_units += 0.33
+        elif ch in "mw":
             total_units += 0.82
         else:
-            total_units += 0.53
-    # Add small headroom (4%) to guard against OS font metric variance
-    return round(total_units * em_cm * bold_factor * 1.04, 4)
+            total_units += 0.56
+    # Add 7% headroom to guard against PowerPoint/QuickLook word-wrap margin variance
+    return round(total_units * em_cm * bold_factor * 1.07, 4)
 
 
 def _is_latin_word_char(ch: str) -> bool:
