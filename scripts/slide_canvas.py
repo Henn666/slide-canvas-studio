@@ -689,7 +689,10 @@ class SlideCanvas(VectorPrimitivesMixin):
         shp.name = name or (f"box_{idx}" if str(text).strip() else f"card_bg_{idx}")
         if rx_px > 0 and min(w, h) > 0:
             shp.adjustments[0] = min(0.49, float(rx_px) / min(w, h))
-        v_pad = pad_px if pad_v_px is None else pad_v_px
+        if pad_v_px is None:
+            v_pad = 0.0 if valign.lower() in ("middle", "center") else pad_px
+        else:
+            v_pad = pad_v_px
         return self._finalize_shape_fill_and_text(
             shp, x, y, w, h, fill, stroke, text, size, color, bold, align, valign, font, role, pad_px, v_pad, id
         )
@@ -758,7 +761,7 @@ class SlideCanvas(VectorPrimitivesMixin):
         idx = self._next_id()
         shp.name = name or (f"circle_{idx}" if str(text).strip() else f"dot_{idx}")
         return self._finalize_shape_fill_and_text(
-            shp, bx, by, bw, bh, fill, stroke, text, size, color, bold, "center", "middle", font, role, 4.0, 4.0, id
+            shp, bx, by, bw, bh, fill, stroke, text, size, color, bold, "center", "middle", font, role, 4.0, 0.0, id
         )
 
     def glow(self, cx: float, cy: float, r: float, color: str = "accent@0.09", rings: int = 2):

@@ -247,7 +247,7 @@ def dump_slide_layout(pptx_path: str, slide_num: int, out_json: str = None) -> d
             parent = min(enclosing, key=lambda c: c["w_cm"] * c["h_cm"])
             eff_bottom = max(el["bottom_cm"], round(el["y_cm"] + el["estimated_text_h_cm"], 3))
             if (
-                eff_bottom > parent["bottom_cm"] - 0.04
+                eff_bottom > parent["bottom_cm"] - 0.15
                 or el["right_cm"] > parent["right_cm"] + 0.05
                 or el["x_cm"] < parent["x_cm"] - 0.05
                 or el["y_cm"] < parent["y_cm"] - 0.05
