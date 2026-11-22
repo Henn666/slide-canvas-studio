@@ -459,10 +459,12 @@ class SlideCanvas(VectorPrimitivesMixin):
         pt_size, _ = TokenResolver.resolve_typography(size)
         tf = shp.text_frame
         tf.word_wrap = True
-        tf.margin_left = px(pad_x_px)
-        tf.margin_right = px(pad_x_px)
-        tf.margin_top = px(pad_v_px)
-        tf.margin_bottom = px(pad_v_px)
+        eff_pad_x = 0.0 if align.lower() == "center" else pad_x_px
+        eff_pad_v = 0.0 if valign.lower() in ("middle", "center") else pad_v_px
+        tf.margin_left = px(eff_pad_x)
+        tf.margin_right = px(eff_pad_x)
+        tf.margin_top = px(eff_pad_v)
+        tf.margin_bottom = px(eff_pad_v)
         valign_map = {"top": MSO_ANCHOR.TOP, "middle": MSO_ANCHOR.MIDDLE, "center": MSO_ANCHOR.MIDDLE, "bottom": MSO_ANCHOR.BOTTOM}
         tf.vertical_anchor = valign_map.get(valign.lower(), MSO_ANCHOR.TOP)
 
