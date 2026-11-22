@@ -35,6 +35,8 @@ Zero binary dependencies · CJK-aware typography · WCAG contrast guard · Dual 
 
 ## Key Capabilities
 
+- **Dynamic Tailwind Design Tokens (`tokens.py`)**: Full-spectrum 22-family Tailwind CSS v3.4 palette (`{family}-{50..950}`), declarative `SlideTheme` deck styling, `text-*` / `rounded-*` / `gap-*` / `p-*` scale tokens, `/NN` background pre-blending, and the `c.card(variant=...)` open-container primitive.
+- **Draw-Time WCAG Contrast Guard (`ensure_contrast()`)**: Tracks the active background stack across canvas, cards, pills, and shapes at draw time, automatically adjusting foreground shades along Tailwind `SHADE_STEPS` to guarantee `>= 4.5:1` (`>= 3.0:1` for `>= 24pt` headings) readability.
 - **SVG Mental Model, Low Token Cost**: Express layouts with Python loops, `polar()`, `c.cols()`, `c.bezier()`, `c.curve()`, `c.donut()`, `#HEX@opacity`, and `grad(...)` with minimal token overhead.
 - **Pure Python OpenXML Generation**: Compiles directly to 100% native, editable PowerPoint shapes via `python-pptx` with zero external CLI tools required.
 - **CJK-Aware Typography (`text_measure.py`)**: Automatic Chinese/English line-wrapping, forbidden line-start/end punctuation rules, and `c.text_auto()` returning exact `bottom_y` so elements never collide.
@@ -93,7 +95,9 @@ slide-canvas-studio/
 ├── design-framework/         # Guardrails & 1280x720 SlideCanvas API reference
 ├── styles/                   # Optional reference style profiles (Apple Glass, Bento, Swiss, Neo-Brutalism, Nordic)
 └── scripts/
-    ├── slide_canvas.py       # 1280x720 SVG-flavored OpenXML canvas engine
+    ├── tokens.py             # Tailwind 22-family palette, SlideTheme & WCAG contrast guard
+    ├── vector_primitives.py  # Geometry helpers, Node Registry, connect(), bezier/curve/path/donut
+    ├── slide_canvas.py       # 1280x720 SVG-flavored OpenXML canvas orchestrator & c.card()
     ├── text_measure.py       # CJK + Latin wrapping & height estimator
     ├── dump_slide_layout.py  # Raw EMU bounds, overlap, overflow & contrast checker
     ├── render_single_slide.py# LibreOffice / QuickLook single-slide PNG renderer

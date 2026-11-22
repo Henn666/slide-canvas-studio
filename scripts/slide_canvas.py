@@ -2,9 +2,8 @@
 """
 slide_canvas.py
 1280x720 SVG-Flavored Python Canvas Engine -> 100% Native OpenXML (.pptx).
-LLM writes concise Python using familiar SVG/Canvas mental models (1280x720 viewBox,
-loops, polar(), text_auto(), #HEX@opacity, grad(...), stroke color@op:w:dash, path d=...),
-compiling straight into native editable PowerPoint OpenXML via python-pptx.
+Slim orchestrator combining Tailwind semantic tokens + draw-time WCAG contrast guard
+(`tokens.py`) with vector/connector primitives (`vector_primitives.py`).
 """
 import os
 import sys
@@ -15,9 +14,8 @@ if os.path.exists(_VENV_PY) and os.path.abspath(sys.prefix) != os.path.abspath(o
     os.execv(_VENV_PY, [_VENV_PY] + sys.argv)
 
 import argparse
-import math
 import re
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from pptx import Presentation
 from pptx.dml.color import RGBColor
@@ -25,208 +23,111 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.oxml import parse_xml
 from pptx.oxml.ns import nsdecls
-from pptx.util import Emu, Pt
+from pptx.util import Pt
 
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
-from text_measure import wrap_and_measure_text
 
-# ---------------------------------------------------------------------------
-# Constants: Exact Integer Mapping 1280x720 px -> 16:9 Widescreen EMU
-# 1 px = 9525 EMU = 0.75 pt = 0.026458333 cm
-# ---------------------------------------------------------------------------
-W_PX = 1280.0
-H_PX = 720.0
-PX_TO_EMU = 9525
-PX_TO_CM = 33.8666666667 / 1280.0
-CM_TO_PX = 1280.0 / 33.8666666667
+from text_measure import wrap_and_measure_text
+from tokens import (
+    CARD_VARIANTS,
+    TAILWIND_PALETTE,
+    SlideTheme,
+    TokenResolver,
+    blend_alpha,
+    clean_hex6,
+    contrast_ratio,
+    hex_to_rgb,
+    relative_luminance,
+)
+from vector_primitives import (
+    CM_TO_PX,
+    H_PX,
+    PX_TO_CM,
+    PX_TO_EMU,
+    W_PX,
+    VectorPrimitivesMixin,
+    _dash_to_prst,
+    _parse_svg_path,
+    _split_boxes,
+    lerp,
+    polar,
+    px,
+)
+
+__all__ = [
+    "SlideCanvas",
+    "SlideTheme",
+    "TokenResolver",
+    "TAILWIND_PALETTE",
+    "CARD_VARIANTS",
+    "contrast_ratio",
+    "relative_luminance",
+    "W_PX",
+    "H_PX",
+    "PX_TO_EMU",
+    "PX_TO_CM",
+    "CM_TO_PX",
+    "px",
+    "polar",
+    "lerp",
+    "run_cli",
+]
 
 _A_NS = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
 _P_NS = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
-_HEX6_RE = re.compile(r"^#?[0-9A-Fa-f]{6}$")
 _NUM_RE = re.compile(r"[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?")
-_PATH_CMD_RE = re.compile(r"([MmLlHhVvCcSsQqTtZz])|([-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?)")
+_META_PALETTE_KEYS = frozenset(("font_heading", "font_body", "font_mono", "radius", "border_pt"))
+
+_DEFAULT_PALETTE: Dict[str, str] = {
+    "bg_canvas": "F5F5F7",
+    "bg_surface": "FFFFFF",
+    "ink_primary": "1D1D1F",
+    "ink_muted": "6E6E73",
+    "border_grid": "D1D1D6",
+    "accent_primary": "0071E3",
+    "accent_secondary": "3A7D74",
+}
+
+_PALETTE_ALIAS_PAIRS: Tuple[Tuple[str, str], ...] = (
+    ("bg_canvas", "bg"),
+    ("bg_surface", "surface"),
+    ("surface_2", "surface2"),
+    ("ink_primary", "ink"),
+    ("ink_muted", "muted"),
+    ("border_grid", "border"),
+    ("accent_primary", "accent"),
+    ("accent_secondary", "accent2"),
+)
 
 
-def px(val: float) -> Emu:
-    return Emu(int(round(float(val) * PX_TO_EMU)))
-
-
-def polar(cx: float, cy: float, r: float, deg: float) -> Tuple[float, float]:
-    """Return (x, y) in 1280x720 canvas coords for radius r and angle deg (0=right, -90=top)."""
-    rad = math.radians(deg)
-    return (round(cx + r * math.cos(rad), 2), round(cy + r * math.sin(rad), 2))
-
-
-def lerp(a: float, b: float, t: float) -> float:
-    return a + (b - a) * t
-
-
-def _split_boxes(
-    total: float, start: float, n: int, gap: float, weights: Optional[List[float]] = None
-) -> List[Tuple[float, float]]:
-    w_list = [float(w) for w in weights] if weights else [1.0] * max(1, n)
-    w_sum = sum(w_list) or 1.0
-    usable = max(10.0, total - gap * max(0, len(w_list) - 1))
-    out: List[Tuple[float, float]] = []
-    cur = start
-    for wt in w_list:
-        size = usable * (wt / w_sum)
-        out.append((round(cur, 2), round(size, 2)))
-        cur += size + gap
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Color, Contrast & Shorthand Parsers
-# ---------------------------------------------------------------------------
-def _rel_luminance(hex6: str) -> float:
-    h = hex6.lstrip("#").upper()
-    rgb = [int(h[i : i + 2], 16) / 255.0 for i in (0, 2, 4)]
-    lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb]
-    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
-
-
-def contrast_ratio(hex_a: str, hex_b: str) -> float:
-    l1, l2 = _rel_luminance(hex_a), _rel_luminance(hex_b)
-    return round((max(l1, l2) + 0.05) / (min(l1, l2) + 0.05), 2)
-
-
-def _hex_to_rgb(hex6: str) -> RGBColor:
-    h = hex6.lstrip("#").upper()
-    return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
-
-
-def _dash_to_prst(dash_token: str) -> str:
-    s = dash_token.strip().lower()
-    if s in ("", "none", "solid"):
-        return "solid"
-    if s in ("dash", "dot", "dashdot", "lgdash", "sysdot", "sysdash", "lgdashdot"):
-        mapping = {"dashdot": "dashDot", "lgdash": "lgDash", "sysdot": "sysDot", "sysdash": "sysDash", "lgdashdot": "lgDashDot"}
-        return mapping.get(s, s)
-    nums = [float(x) for x in _NUM_RE.findall(s)]
-    if len(nums) >= 3:
-        return "dashDot"
-    if len(nums) >= 1 and nums[0] <= 2.5:
-        return "dot"
-    if len(nums) >= 1 and nums[0] >= 8.0:
-        return "lgDash"
-    return "dash"
-
-
-def _parse_svg_path(d: str) -> List[Tuple[str, List[Tuple[float, float]]]]:
-    tokens: List[Any] = [m.group(1) if m.group(1) else float(m.group(2)) for m in _PATH_CMD_RE.finditer(d)]
-    ops: List[Tuple[str, List[Tuple[float, float]]]] = []
-    i = 0
-    cmd = ""
-    cx, cy = 0.0, 0.0
-    sx, sy = 0.0, 0.0
-    last_ctrl: Optional[Tuple[float, float]] = None
-
-    def has_num() -> bool:
-        return i < len(tokens) and isinstance(tokens[i], float)
-
-    while i < len(tokens):
-        if isinstance(tokens[i], str):
-            cmd = tokens[i]
-            i += 1
-        if cmd in ("Z", "z"):
-            ops.append(("Z", []))
-            cx, cy = sx, sy
-            last_ctrl = None
-            cmd = ""
-            continue
-        if not has_num():
-            break
-        is_rel = cmd.islower()
-        ucmd = cmd.upper()
-        if ucmd == "M":
-            first = True
-            while has_num():
-                x, y = tokens[i], tokens[i + 1]
-                i += 2
-                if is_rel:
-                    x, y = cx + x, cy + y
-                cx, cy = x, y
-                if first:
-                    sx, sy = cx, cy
-                    ops.append(("M", [(cx, cy)]))
-                    first = False
-                else:
-                    ops.append(("L", [(cx, cy)]))
-            last_ctrl = None
-            cmd = "l" if is_rel else "L"
-        elif ucmd == "L":
-            while has_num():
-                x, y = tokens[i], tokens[i + 1]
-                i += 2
-                if is_rel:
-                    x, y = cx + x, cy + y
-                cx, cy = x, y
-                ops.append(("L", [(cx, cy)]))
-            last_ctrl = None
-        elif ucmd == "H":
-            while has_num():
-                x = tokens[i]
-                i += 1
-                cx = (cx + x) if is_rel else x
-                ops.append(("L", [(cx, cy)]))
-            last_ctrl = None
-        elif ucmd == "V":
-            while has_num():
-                y = tokens[i]
-                i += 1
-                cy = (cy + y) if is_rel else y
-                ops.append(("L", [(cx, cy)]))
-            last_ctrl = None
-        elif ucmd == "C":
-            while has_num():
-                x1, y1, x2, y2, x, y = tokens[i : i + 6]
-                i += 6
-                if is_rel:
-                    x1, y1, x2, y2, x, y = cx + x1, cy + y1, cx + x2, cy + y2, cx + x, cy + y
-                ops.append(("C", [(x1, y1), (x2, y2), (x, y)]))
-                last_ctrl = (x2, y2)
-                cx, cy = x, y
-        elif ucmd == "S":
-            while has_num():
-                x2, y2, x, y = tokens[i : i + 4]
-                i += 4
-                if is_rel:
-                    x2, y2, x, y = cx + x2, cy + y2, cx + x, cy + y
-                x1, y1 = (2 * cx - last_ctrl[0], 2 * cy - last_ctrl[1]) if last_ctrl else (cx, cy)
-                ops.append(("C", [(x1, y1), (x2, y2), (x, y)]))
-                last_ctrl = (x2, y2)
-                cx, cy = x, y
-        elif ucmd == "Q":
-            while has_num():
-                qx, qy, x, y = tokens[i : i + 4]
-                i += 4
-                if is_rel:
-                    qx, qy, x, y = cx + qx, cy + qy, cx + x, cy + y
-                c1 = (cx + (2.0 / 3.0) * (qx - cx), cy + (2.0 / 3.0) * (qy - cy))
-                c2 = (x + (2.0 / 3.0) * (qx - x), y + (2.0 / 3.0) * (qy - y))
-                ops.append(("C", [c1, c2, (x, y)]))
-                last_ctrl = (qx, qy)
-                cx, cy = x, y
-        else:
-            break
-    return ops
+def _oxml_rgb(hex6: str) -> RGBColor:
+    """Convert a 6-char hex string to a python-pptx RGBColor."""
+    r, g, b = hex_to_rgb(hex6)
+    return RGBColor(r, g, b)
 
 
 # ---------------------------------------------------------------------------
-# SlideCanvas Class
+# SlideCanvas Orchestrator
 # ---------------------------------------------------------------------------
-class SlideCanvas:
+class SlideCanvas(VectorPrimitivesMixin):
+    """1280x720 SVG-flavored OpenXML presentation builder with Tailwind tokens & WCAG guard."""
+
     def __init__(
         self,
-        pptx_path: str = None,
-        palette: Optional[Dict[str, str]] = None,
+        pptx_path: Optional[str] = None,
+        palette: Optional[Union[Dict[str, str], SlideTheme]] = None,
         typography: Optional[Dict[str, str]] = None,
         template_path: Optional[str] = None,
         check_contrast: bool = True,
+        theme: Optional[SlideTheme] = None,
     ):
+        if isinstance(palette, SlideTheme):
+            if theme is None:
+                theme = palette
+            palette = None
+
         self.pptx_path = pptx_path
         if pptx_path and os.path.exists(pptx_path) and not template_path:
             self.prs = Presentation(pptx_path)
@@ -244,24 +145,28 @@ class SlideCanvas:
         self._nodes: Dict[str, Dict[str, float]] = {}
         self._port_counts: Dict[Tuple[str, str], int] = {}
 
-        self.palette: Dict[str, str] = {}
-        default_pal = {
-            "bg_canvas": "F5F5F7",
-            "bg_surface": "FFFFFF",
-            "ink_primary": "1D1D1F",
-            "ink_muted": "6E6E73",
-            "border_grid": "D1D1D6",
-            "accent_primary": "0071E3",
-            "accent_secondary": "3A7D74",
-        }
-        self.set_palette({**default_pal, **(palette or {})}, check_contrast=check_contrast)
+        self.theme: Optional[SlideTheme] = theme
+        self.default_rx: Union[str, float] = theme.radius if theme is not None else "rounded-xl"
+        self.default_border_pt: float = float(theme.border_pt) if theme is not None else 0.75
 
-        self.typography = {
-            "font_heading": "PingFang TC",
-            "font_body": "PingFang TC",
-            "font_mono": "Menlo",
-            **(typography or {}),
+        pal_dict = theme.to_palette_dict() if theme is not None else dict(palette or {})
+        if theme is not None and palette:
+            pal_dict = {**pal_dict, **palette}
+
+        self.palette: Dict[str, str] = {}
+        self._current_bg_hex: str = "F5F5F7"
+        self._bg_stack: List[Tuple[float, float, float, float, str]] = []
+        self.set_palette(pal_dict, check_contrast=check_contrast)
+
+        base_typo = {
+            "font_heading": theme.font_heading if theme is not None else "PingFang TC",
+            "font_body": theme.font_body if theme is not None else "PingFang TC",
+            "font_mono": theme.font_mono if theme is not None else "Menlo",
         }
+        for fk in ("font_heading", "font_body", "font_mono"):
+            if fk in self.palette and self.palette[fk]:
+                base_typo[fk] = self.palette[fk]
+        self.typography: Dict[str, str] = {**base_typo, **(typography or {})}
 
     def _pick_blank_layout(self):
         for lay in self.prs.slide_layouts:
@@ -273,70 +178,136 @@ class SlideCanvas:
         self._id_counter += 1
         return self._id_counter
 
-    def set_palette(self, pal: Dict[str, str], check_contrast: bool = True):
+    def set_palette(self, pal: Union[Dict[str, str], SlideTheme], check_contrast: bool = True):
+        """Normalize a palette dict or SlideTheme, sync role aliases, and verify canvas contrast."""
+        if isinstance(pal, SlideTheme):
+            self.theme = pal
+            self.default_rx = pal.radius
+            self.default_border_pt = float(pal.border_pt)
+            pal = pal.to_palette_dict()
+
         clean: Dict[str, str] = {}
         for k, v in pal.items():
-            clean[k] = str(v).strip().lstrip("#").upper()
-        # Bi-directional aliases so LLM can use short or full role names seamlessly
-        alias_pairs = [
-            ("bg_canvas", "bg"),
-            ("bg_surface", "surface"),
-            ("ink_primary", "ink"),
-            ("ink_muted", "muted"),
-            ("border_grid", "border"),
-            ("accent_primary", "accent"),
-            ("accent_secondary", "accent2"),
-        ]
-        for full_k, short_k in alias_pairs:
-            if full_k in clean and short_k not in clean:
-                clean[short_k] = clean[full_k]
-            elif short_k in clean and full_k not in clean:
-                clean[full_k] = clean[short_k]
+            sval = str(v).strip()
+            if k in _META_PALETTE_KEYS:
+                clean[k] = sval
+            else:
+                try:
+                    hx = clean_hex6(sval)
+                    clean[k] = "none" if hx == "NONE" else hx
+                except ValueError:
+                    clean[k] = sval
+
+        def _sync_aliases(target: Dict[str, str]) -> None:
+            for full_k, short_k in _PALETTE_ALIAS_PAIRS:
+                if full_k in target and short_k not in target:
+                    target[short_k] = target[full_k]
+                elif short_k in target and full_k not in target:
+                    target[full_k] = target[short_k]
+
+        _sync_aliases(clean)
+        for def_k, def_v in _DEFAULT_PALETTE.items():
+            clean.setdefault(def_k, def_v)
+        _sync_aliases(clean)
+
+        if "surface_2" not in clean and "surface2" not in clean:
+            try:
+                surf_hx, _ = TokenResolver.resolve_color_alpha(clean["bg_surface"], base_bg_hex="F5F5F7", palette=clean)
+                ink_hx, _ = TokenResolver.resolve_color_alpha(clean["ink_primary"], base_bg_hex=surf_hx, palette=clean)
+                s2 = blend_alpha(ink_hx, surf_hx, 0.06) if surf_hx != "NONE" and ink_hx != "NONE" else "E5E5EA"
+            except ValueError:
+                s2 = "E5E5EA"
+            clean["surface_2"] = s2
+            clean["surface2"] = s2
+
         clean.setdefault("white", "FFFFFF")
         clean.setdefault("black", "000000")
         self.palette = clean
 
+        if hasattr(self, "typography"):
+            for fk in ("font_heading", "font_body", "font_mono"):
+                if fk in clean and clean[fk]:
+                    self.typography[fk] = clean[fk]
+
+        bg_hx, _ = TokenResolver.resolve_color_alpha(
+            "bg_canvas", base_bg_hex="F5F5F7", palette=clean, default="F5F5F7"
+        )
+        self._current_bg_hex = bg_hx if bg_hx != "NONE" else "F5F5F7"
+
         if check_contrast and "bg_canvas" in clean and "ink_primary" in clean:
-            bg, ink = clean["bg_canvas"], clean["ink_primary"]
-            if _HEX6_RE.match(bg) and _HEX6_RE.match(ink):
-                cr = contrast_ratio(bg, ink)
+            ink_hx, _ = TokenResolver.resolve_color_alpha(
+                "ink_primary", base_bg_hex=self._current_bg_hex, palette=clean, default="1D1D1F"
+            )
+            if self._current_bg_hex != "NONE" and ink_hx != "NONE":
+                cr = contrast_ratio(self._current_bg_hex, ink_hx)
                 if cr < 4.5:
-                    raise ValueError(f"WCAG Contrast Violation: bg_canvas (#{bg}) vs ink_primary (#{ink}) is {cr}:1 (< 4.5:1 minimum).")
+                    raise ValueError(
+                        f"WCAG Contrast Violation: bg_canvas (#{self._current_bg_hex}) vs "
+                        f"ink_primary (#{ink_hx}) is {cr}:1 (< 4.5:1 minimum)."
+                    )
 
-    def resolve_hex(self, token: str, default: str = "ink") -> str:
-        t = str(token or default).strip()
-        if t in self.palette:
-            return self.palette[t]
-        tl = t.lower()
-        if tl in self.palette:
-            return self.palette[tl]
-        named = {"white": "FFFFFF", "black": "000000", "transparent": "none", "none": "none"}
-        if tl in named:
-            return named[tl]
-        h = t.lstrip("#").upper()
-        if len(h) == 3 and all(c in "0123456789ABCDEF" for c in h):
-            return "".join(c * 2 for c in h)
-        if len(h) == 6 and all(c in "0123456789ABCDEF" for c in h):
-            return h
-        return self.palette.get(default, "1D1D1F")
+    # -----------------------------------------------------------------------
+    # Background Stack & Token Parsers
+    # -----------------------------------------------------------------------
+    def _effective_bg_at(self, x: float, y: float, w: float, h: float) -> str:
+        """Return topmost opaque solid background hex enclosing center `(x+w/2, y+h/2)`."""
+        cx = float(x) + float(w) / 2.0
+        cy = float(y) + float(h) / 2.0
+        for bx, by, bw, bh, bg_hx in reversed(self._bg_stack):
+            if bx <= cx <= bx + bw and by <= cy <= by + bh:
+                return bg_hx
+        return self._current_bg_hex
 
-    def parse_color_alpha(self, expr: Optional[str], default: str = "ink") -> Tuple[str, Optional[float]]:
+    def resolve_hex(
+        self,
+        token: Optional[str],
+        default: str = "ink",
+        base_bg_hex: Optional[str] = None,
+    ) -> str:
+        """Resolve a semantic, Tailwind, or hex color token to 6-char uppercase hex (or `'none'`)."""
+        if token is None:
+            return "none"
+        bg = base_bg_hex or self._current_bg_hex
+        try:
+            hx, _ = TokenResolver.resolve_color_alpha(
+                str(token), base_bg_hex=bg, palette=self.palette, default=default
+            )
+        except ValueError:
+            hx, _ = TokenResolver.resolve_color_alpha(
+                default, base_bg_hex=bg, palette=self.palette, default="1D1D1F"
+            )
+        return "none" if hx == "NONE" else hx
+
+    def parse_color_alpha(
+        self,
+        expr: Optional[str],
+        default: str = "ink",
+        base_bg_hex: Optional[str] = None,
+    ) -> Tuple[str, Optional[float]]:
+        """Resolve `<token>[/pct][@alpha]` -> `(hex6, openxml_alpha)` or `('none', None)`."""
         if expr is None:
             return "none", None
-        s = str(expr).strip()
-        if s.lower() in ("", "none", "transparent", "clear"):
+        bg = base_bg_hex or self._current_bg_hex
+        try:
+            hx, op = TokenResolver.resolve_color_alpha(
+                expr, base_bg_hex=bg, palette=self.palette, default=default
+            )
+        except ValueError:
+            hx, op = TokenResolver.resolve_color_alpha(
+                default, base_bg_hex=bg, palette=self.palette, default="1D1D1F"
+            )
+        if hx == "NONE":
             return "none", None
-        if "@" in s:
-            c_part, op_part = s.split("@", 1)
-            return self.resolve_hex(c_part, default), max(0.0, min(1.0, float(op_part)))
-        return self.resolve_hex(s, default), None
+        return hx, op
 
-    def parse_fill(self, fill: Any) -> Dict[str, Any]:
+    def parse_fill(self, fill: Any, base_bg_hex: Optional[str] = None) -> Dict[str, Any]:
+        """Parse solid, transparent, or `grad(...)` fill into normalized OpenXML metadata."""
         if fill is None:
             return {"kind": "none"}
         s = str(fill).strip()
         if s.lower() in ("", "none", "transparent", "clear"):
             return {"kind": "none"}
+        bg = base_bg_hex or self._current_bg_hex
         if s.lower().startswith("grad(") and s.endswith(")"):
             inner = s[5:-1]
             parts = [p.strip() for p in inner.split(",") if p.strip()]
@@ -351,20 +322,24 @@ class SlideCanvas:
             stops = []
             for idx, se in enumerate(stop_exprs):
                 pos = int(round((idx / max(1, len(stop_exprs) - 1)) * 100000))
-                hx, op = self.parse_color_alpha(se, "accent")
+                hx, op = self.parse_color_alpha(se, "accent", base_bg_hex=bg)
+                if hx == "none":
+                    hx = self.resolve_hex("accent", base_bg_hex=bg)
                 stops.append((pos, hx, op))
             return {"kind": "grad", "angle": ang, "stops": stops}
-        hx, op = self.parse_color_alpha(s, "surface")
+        hx, op = self.parse_color_alpha(s, "surface", base_bg_hex=bg)
         return {"kind": "none"} if hx == "none" else {"kind": "solid", "hex": hx, "opacity": op}
 
-    def parse_stroke(self, stroke: Any) -> Dict[str, Any]:
+    def parse_stroke(self, stroke: Any, base_bg_hex: Optional[str] = None) -> Dict[str, Any]:
+        """Parse `color[/pct][@op]:width_pt:dash` stroke shorthand."""
         if stroke is None:
             return {"kind": "none"}
         s = str(stroke).strip()
         if s.lower() in ("", "none", "transparent", "clear"):
             return {"kind": "none"}
+        bg = base_bg_hex or self._current_bg_hex
         parts = s.split(":")
-        hx, op = self.parse_color_alpha(parts[0], "border")
+        hx, op = self.parse_color_alpha(parts[0], "border", base_bg_hex=bg)
         if hx == "none":
             return {"kind": "none"}
         width_pt = 1.25
@@ -389,7 +364,10 @@ class SlideCanvas:
         elif fill_info["kind"] == "solid":
             if fill_info.get("opacity") is not None:
                 av = int(round(fill_info["opacity"] * 100000))
-                el = parse_xml(f'<a:solidFill {ns}><a:srgbClr val="{fill_info["hex"]}"><a:alpha val="{av}"/></a:srgbClr></a:solidFill>')
+                el = parse_xml(
+                    f'<a:solidFill {ns}><a:srgbClr val="{fill_info["hex"]}">'
+                    f'<a:alpha val="{av}"/></a:srgbClr></a:solidFill>'
+                )
             else:
                 el = parse_xml(f'<a:solidFill {ns}><a:srgbClr val="{fill_info["hex"]}"/></a:solidFill>')
         else:
@@ -402,7 +380,8 @@ class SlideCanvas:
                 else:
                     gs_parts.append(f'<a:gs pos="{pos}"><a:srgbClr val="{hx}"/></a:gs>')
             el = parse_xml(
-                f'<a:gradFill {ns} flip="none" rotWithShape="1"><a:gsLst>{"".join(gs_parts)}</a:gsLst><a:lin ang="{ang}" scaled="1"/></a:gradFill>'
+                f'<a:gradFill {ns} flip="none" rotWithShape="1">'
+                f'<a:gsLst>{"".join(gs_parts)}</a:gsLst><a:lin ang="{ang}" scaled="1"/></a:gradFill>'
             )
         insert_idx = 0
         for idx, child in enumerate(list(container_el)):
@@ -410,15 +389,21 @@ class SlideCanvas:
                 insert_idx = idx + 1
         container_el.insert(insert_idx, el)
 
-    def _apply_style(self, shp, fill: Any = "none", stroke: Any = "none"):
+    def _apply_style(
+        self,
+        shp,
+        fill: Any = "none",
+        stroke: Any = "none",
+        base_bg_hex: Optional[str] = None,
+    ):
         sp_pr = shp._element.spPr
-        self._insert_oxml_fill(sp_pr, self.parse_fill(fill))
+        self._insert_oxml_fill(sp_pr, self.parse_fill(fill, base_bg_hex=base_bg_hex))
 
-        st = self.parse_stroke(stroke)
+        st = self.parse_stroke(stroke, base_bg_hex=base_bg_hex)
         if st["kind"] == "none":
             shp.line.fill.background()
         else:
-            shp.line.color.rgb = _hex_to_rgb(st["hex"])
+            shp.line.color.rgb = _oxml_rgb(st["hex"])
             shp.line.width = Pt(max(0.2, st["width_pt"]))
             ln = sp_pr.find(f"{_A_NS}ln")
             if ln is not None:
@@ -460,7 +445,7 @@ class SlideCanvas:
         self,
         shp,
         txt: str,
-        size: float = 15.0,
+        size: Union[float, str] = 15.0,
         color: str = "ink",
         bold: bool = False,
         align: str = "left",
@@ -469,7 +454,9 @@ class SlideCanvas:
         role: Optional[str] = None,
         pad_x_px: float = 8.0,
         pad_v_px: float = 6.0,
+        bg_hex: Optional[str] = None,
     ):
+        pt_size, _ = TokenResolver.resolve_typography(size)
         tf = shp.text_frame
         tf.word_wrap = True
         tf.margin_left = px(pad_x_px)
@@ -482,8 +469,16 @@ class SlideCanvas:
         align_map = {"left": PP_ALIGN.LEFT, "center": PP_ALIGN.CENTER, "right": PP_ALIGN.RIGHT, "justify": PP_ALIGN.JUSTIFY}
         p_align = align_map.get(align.lower(), PP_ALIGN.LEFT)
         fname = self._resolve_font(font, role)
-        hx, _ = self.parse_color_alpha(color, "ink")
-        rgb = _hex_to_rgb(hx if hx != "none" else "1D1D1F")
+
+        actual_bg = bg_hex or self._current_bg_hex
+        if actual_bg and str(actual_bg).lower() != "none":
+            min_cr = 3.0 if pt_size >= 24.0 else 4.5
+            hx = TokenResolver.ensure_contrast(color, actual_bg, palette=self.palette, min_ratio=min_cr)
+        else:
+            hx, _ = self.parse_color_alpha(color, "ink")
+        if hx in ("none", "NONE", ""):
+            hx = "1D1D1F"
+        rgb = _oxml_rgb(hx)
 
         lines = str(txt).split("\n")
         for idx, line_str in enumerate(lines):
@@ -494,7 +489,7 @@ class SlideCanvas:
             run = p.add_run()
             run.text = line_str
             run.font.name = fname
-            run.font.size = Pt(float(size))
+            run.font.size = Pt(float(pt_size))
             run.font.bold = bool(bold)
             run.font.color.rgb = rgb
             rPr = run._r.get_or_add_rPr()
@@ -509,6 +504,7 @@ class SlideCanvas:
         self.slide_idx = len(self.prs.slides)
         self._nodes = {}
         self._port_counts = {}
+        self._bg_stack = []
         self.set_background(bg or "bg_canvas")
         return self.slide
 
@@ -519,6 +515,7 @@ class SlideCanvas:
         self.slide_idx = slide_num
         self._nodes = {}
         self._port_counts = {}
+        self._bg_stack = []
         if clear:
             sp_tree = self.slide.shapes._spTree
             for child in list(sp_tree):
@@ -528,19 +525,13 @@ class SlideCanvas:
         self.set_background(bg or "bg_canvas")
         return self.slide
 
-    def _register_node(self, node_id: Optional[str], x: float, y: float, w: float, h: float):
-        if node_id:
-            self._nodes[str(node_id)] = {
-                "x": float(x),
-                "y": float(y),
-                "w": float(w),
-                "h": float(h),
-                "cx": float(x + w / 2.0),
-                "cy": float(y + h / 2.0),
-            }
-
     def set_background(self, bg: str):
         fill_info = self.parse_fill(bg)
+        if fill_info["kind"] == "solid" and fill_info["hex"] != "none":
+            self._current_bg_hex = fill_info["hex"]
+        elif fill_info["kind"] == "grad" and fill_info.get("stops"):
+            self._current_bg_hex = fill_info["stops"][0][1]
+
         bg_pr = self.slide.background._element.find(f"{_P_NS}bg/{_P_NS}bgPr")
         if bg_pr is None:
             self.slide.background.fill.solid()
@@ -573,31 +564,113 @@ class SlideCanvas:
     # -----------------------------------------------------------------------
     # Grid & Layout Helpers
     # -----------------------------------------------------------------------
-    def cols(self, n: int, x: float = 68, y: float = 166, w: float = 1144, h: float = 460, gap: float = 24, weights: Optional[List[float]] = None) -> List[Tuple[float, float, float, float]]:
-        return [(cx, round(y, 2), cw, round(h, 2)) for cx, cw in _split_boxes(w, x, n, gap, weights)]
+    def cols(
+        self,
+        n: int,
+        x: float = 68,
+        y: float = 166,
+        w: float = 1144,
+        h: float = 460,
+        gap: Union[float, str] = 24,
+        weights: Optional[List[float]] = None,
+    ) -> List[Tuple[float, float, float, float]]:
+        gap_px = TokenResolver.resolve_spacing(gap, 24.0)
+        return [(cx, round(y, 2), cw, round(h, 2)) for cx, cw in _split_boxes(w, x, n, gap_px, weights)]
 
-    def rows(self, n: int, x: float = 68, y: float = 166, w: float = 1144, h: float = 460, gap: float = 20, weights: Optional[List[float]] = None) -> List[Tuple[float, float, float, float]]:
-        return [(round(x, 2), ry, round(w, 2), rh) for ry, rh in _split_boxes(h, y, n, gap, weights)]
+    def rows(
+        self,
+        n: int,
+        x: float = 68,
+        y: float = 166,
+        w: float = 1144,
+        h: float = 460,
+        gap: Union[float, str] = 20,
+        weights: Optional[List[float]] = None,
+    ) -> List[Tuple[float, float, float, float]]:
+        gap_px = TokenResolver.resolve_spacing(gap, 20.0)
+        return [(round(x, 2), ry, round(w, 2), rh) for ry, rh in _split_boxes(h, y, n, gap_px, weights)]
 
-    def grid(self, cols_n: int, rows_n: int, x: float = 68, y: float = 166, w: float = 1144, h: float = 460, gap_x: float = 24, gap_y: float = 20) -> List[Tuple[float, float, float, float]]:
-        col_spans = _split_boxes(w, x, cols_n, gap_x)
-        row_spans = _split_boxes(h, y, rows_n, gap_y)
+    def grid(
+        self,
+        cols_n: int,
+        rows_n: int,
+        x: float = 68,
+        y: float = 166,
+        w: float = 1144,
+        h: float = 460,
+        gap_x: Union[float, str] = 24,
+        gap_y: Union[float, str] = 20,
+    ) -> List[Tuple[float, float, float, float]]:
+        gx = TokenResolver.resolve_spacing(gap_x, 24.0)
+        gy = TokenResolver.resolve_spacing(gap_y, 20.0)
+        col_spans = _split_boxes(w, x, cols_n, gx)
+        row_spans = _split_boxes(h, y, rows_n, gy)
         return [(cx, ry, cw, rh) for ry, rh in row_spans for cx, cw in col_spans]
 
     # -----------------------------------------------------------------------
-    # Geometry & Typography Primitives (1280x720)
+    # Shape, Card & Typography Primitives (1280x720)
     # -----------------------------------------------------------------------
+    def _finalize_shape_fill_and_text(
+        self,
+        shp,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        fill: Any,
+        stroke: Any,
+        text: str,
+        size: Union[float, str],
+        color: str,
+        bold: bool,
+        align: str,
+        valign: str,
+        font: Optional[str],
+        role: Optional[str],
+        pad_x_px: float,
+        pad_v_px: float,
+        node_id: Optional[str],
+    ):
+        enclosing_bg = self._effective_bg_at(x, y, w, h)
+        fill_info = self.parse_fill(fill, base_bg_hex=enclosing_bg)
+        self._apply_style(shp, fill=fill, stroke=stroke, base_bg_hex=enclosing_bg)
+
+        is_opaque = fill_info["kind"] == "solid" and (
+            fill_info.get("opacity") is None or fill_info["opacity"] >= 0.5
+        )
+        if str(text) != "":
+            text_bg = fill_info["hex"] if is_opaque else enclosing_bg
+            self._set_text(
+                shp,
+                text,
+                size=size,
+                color=color,
+                bold=bold,
+                align=align,
+                valign=valign,
+                font=font,
+                role=role,
+                pad_x_px=pad_x_px,
+                pad_v_px=pad_v_px,
+                bg_hex=text_bg,
+            )
+
+        if is_opaque and not shp.name.startswith("bg_glow_"):
+            self._bg_stack.append((float(x), float(y), max(1.0, float(w)), max(1.0, float(h)), fill_info["hex"]))
+        self._register_node(node_id, x, y, w, h)
+        return shp
+
     def rect(
         self,
         x: float,
         y: float,
         w: float,
         h: float,
-        rx: float = 0,
+        rx: Union[float, str] = 0,
         fill: Any = "surface",
         stroke: Any = "none",
         text: str = "",
-        size: float = 15.0,
+        size: Union[float, str] = 15.0,
         color: str = "ink",
         bold: bool = False,
         align: str = "center",
@@ -609,18 +682,17 @@ class SlideCanvas:
         name: Optional[str] = None,
         id: Optional[str] = None,
     ):
-        kind = MSO_SHAPE.ROUNDED_RECTANGLE if rx > 0 else MSO_SHAPE.RECTANGLE
+        rx_px = TokenResolver.resolve_radius(rx, 0.0)
+        kind = MSO_SHAPE.ROUNDED_RECTANGLE if rx_px > 0 else MSO_SHAPE.RECTANGLE
         shp = self.slide.shapes.add_shape(kind, px(x), px(y), px(max(1.0, w)), px(max(1.0, h)))
         idx = self._next_id()
         shp.name = name or (f"box_{idx}" if str(text).strip() else f"card_bg_{idx}")
-        if rx > 0 and min(w, h) > 0:
-            shp.adjustments[0] = min(0.49, float(rx) / min(w, h))
-        self._apply_style(shp, fill=fill, stroke=stroke)
-        if str(text) != "":
-            v_pad = pad_px if pad_v_px is None else pad_v_px
-            self._set_text(shp, text, size=size, color=color, bold=bold, align=align, valign=valign, font=font, role=role, pad_x_px=pad_px, pad_v_px=v_pad)
-        self._register_node(id, x, y, w, h)
-        return shp
+        if rx_px > 0 and min(w, h) > 0:
+            shp.adjustments[0] = min(0.49, float(rx_px) / min(w, h))
+        v_pad = pad_px if pad_v_px is None else pad_v_px
+        return self._finalize_shape_fill_and_text(
+            shp, x, y, w, h, fill, stroke, text, size, color, bold, align, valign, font, role, pad_px, v_pad, id
+        )
 
     def pill(
         self,
@@ -631,7 +703,7 @@ class SlideCanvas:
         fill: Any = "accent@0.12",
         stroke: Any = "accent@0.38:1",
         text: str = "",
-        size: float = 11.5,
+        size: Union[float, str] = 11.5,
         color: str = "accent",
         bold: bool = True,
         font: Optional[str] = None,
@@ -639,7 +711,11 @@ class SlideCanvas:
         name: Optional[str] = None,
         id: Optional[str] = None,
     ):
-        return self.rect(x, y, w, h, rx=h / 2.0, fill=fill, stroke=stroke, text=text, size=size, color=color, bold=bold, align="center", valign="middle", font=font, role=role, pad_px=6, pad_v_px=0, name=name or f"pill_{self._next_id()}", id=id)
+        return self.rect(
+            x, y, w, h, rx=h / 2.0, fill=fill, stroke=stroke, text=text, size=size,
+            color=color, bold=bold, align="center", valign="middle", font=font, role=role,
+            pad_px=6, pad_v_px=0, name=name or f"pill_{self._next_id()}", id=id,
+        )
 
     def circle(
         self,
@@ -649,7 +725,7 @@ class SlideCanvas:
         fill: Any = "accent",
         stroke: Any = "none",
         text: str = "",
-        size: float = 13.0,
+        size: Union[float, str] = 13.0,
         color: str = "ink",
         bold: bool = False,
         font: Optional[str] = None,
@@ -668,7 +744,7 @@ class SlideCanvas:
         fill: Any = "accent",
         stroke: Any = "none",
         text: str = "",
-        size: float = 13.0,
+        size: Union[float, str] = 13.0,
         color: str = "ink",
         bold: bool = False,
         font: Optional[str] = None,
@@ -676,383 +752,94 @@ class SlideCanvas:
         name: Optional[str] = None,
         id: Optional[str] = None,
     ):
-        shp = self.slide.shapes.add_shape(MSO_SHAPE.OVAL, px(cx - rx_px), px(cy - ry_px), px(2 * rx_px), px(2 * ry_px))
+        bx, by = cx - rx_px, cy - ry_px
+        bw, bh = max(1.0, 2.0 * rx_px), max(1.0, 2.0 * ry_px)
+        shp = self.slide.shapes.add_shape(MSO_SHAPE.OVAL, px(bx), px(by), px(bw), px(bh))
         idx = self._next_id()
         shp.name = name or (f"circle_{idx}" if str(text).strip() else f"dot_{idx}")
-        self._apply_style(shp, fill=fill, stroke=stroke)
-        if str(text) != "":
-            self._set_text(shp, text, size=size, color=color, bold=bold, align="center", valign="middle", font=font, role=role, pad_x_px=4, pad_v_px=4)
-        self._register_node(id, cx - rx_px, cy - ry_px, 2 * rx_px, 2 * ry_px)
-        return shp
+        return self._finalize_shape_fill_and_text(
+            shp, bx, by, bw, bh, fill, stroke, text, size, color, bold, "center", "middle", font, role, 4.0, 4.0, id
+        )
 
     def glow(self, cx: float, cy: float, r: float, color: str = "accent@0.09", rings: int = 2):
         """Ambient concentric soft glow circles (ignored in overlap detection)."""
         base_c, base_op = self.parse_color_alpha(color, "accent")
+        if base_c == "none":
+            return
         base_op = base_op if base_op is not None else 0.10
         for i in range(rings):
             scale = 1.0 - (i * 0.35)
             op = round(min(0.4, base_op * (1.0 + i * 0.4)), 3)
             self.circle(cx, cy, r * scale, fill=f"#{base_c}@{op}", stroke="none", name=f"bg_glow_{self._next_id()}")
 
-    def _build_poly(self, pts_px: List[Tuple[float, float]], closed: bool, fill: Any, stroke: Any, name: str):
-        if len(pts_px) < 2:
-            return None
-        pts_emu = [(int(round(px(x))), int(round(px(y)))) for x, y in pts_px]
-        builder = self.slide.shapes.build_freeform(pts_emu[0][0], pts_emu[0][1])
-        builder.add_line_segments(pts_emu[1:], close=closed)
-        shp = builder.convert_to_shape()
-        shp.name = name
-        self._apply_style(shp, fill=fill, stroke=stroke)
-        return shp
-
-    def line(self, x1: float, y1: float, x2: float, y2: float, stroke: Any = "border:1", name: Optional[str] = None):
-        return self._build_poly([(x1, y1), (x2, y2)], False, "none", stroke, name or f"vec_line_{self._next_id()}")
-
-    def arrow(self, x1: float, y1: float, x2: float, y2: float, stroke: Any = "accent:2", head_size: float = 9.0, name: Optional[str] = None):
-        st = self.parse_stroke(stroke)
-        c_expr = f"#{st['hex']}@{st['opacity']}" if st.get("opacity") is not None else f"#{st.get('hex', self.resolve_hex('accent'))}"
-        dx, dy = x2 - x1, y2 - y1
-        dist = math.hypot(dx, dy)
-        if dist < 1e-3:
-            return None
-        ux, uy = dx / dist, dy / dist
-        nx, ny = -uy, ux  # unit normal perpendicular to shaft
-
-        # Convert stroke width from pt to 1280x720 canvas px (1 px = 0.75 pt)
-        half_w = max(0.75, (float(st.get("width", 2.0)) * (4.0 / 3.0)) / 2.0)
-        head_len = min(head_size * 0.9, dist * 0.65)
-        head_half_w = max(half_w + 1.5, head_size * math.sin(math.pi / 6.5))
-
-        bx = x2 - ux * head_len
-        by = y2 - uy * head_len
-
-        pts = [
-            (x1 + nx * half_w, y1 + ny * half_w),
-            (bx + nx * half_w, by + ny * half_w),
-            (bx + nx * head_half_w, by + ny * head_half_w),
-            (x2, y2),
-            (bx - nx * head_half_w, by - ny * head_half_w),
-            (bx - nx * half_w, by - ny * half_w),
-            (x1 - nx * half_w, y1 - ny * half_w),
-        ]
-        return self._build_poly(pts, True, fill=c_expr, stroke="none", name=name or f"vec_arrow_{self._next_id()}")
-
-    def _extrude_arrow_poly(
+    def card(
         self,
-        pts: List[Tuple[float, float]],
-        half_w: float,
-        head_size: float,
-        arrow: bool,
-        fill_expr: str,
-        name: str,
-    ):
-        clean: List[Tuple[float, float]] = []
-        for p in pts:
-            if not clean or math.hypot(p[0] - clean[-1][0], p[1] - clean[-1][1]) > 1e-2:
-                clean.append((float(p[0]), float(p[1])))
-        if len(clean) < 2:
-            return None
-
-        tip = clean[-1]
-        prev = clean[-2]
-        seg_dx, seg_dy = tip[0] - prev[0], tip[1] - prev[1]
-        seg_len = math.hypot(seg_dx, seg_dy)
-        if seg_len < 1e-3:
-            return None
-
-        head_len = min(head_size * 0.9, seg_len * 0.65) if arrow else 0.0
-        head_half_w = max(half_w + 1.5, head_size * math.sin(math.pi / 6.5))
-
-        shaft_pts = list(clean)
-        if arrow:
-            ux_last, uy_last = seg_dx / seg_len, seg_dy / seg_len
-            bx = tip[0] - ux_last * head_len
-            by = tip[1] - uy_last * head_len
-            shaft_pts[-1] = (bx, by)
-
-        # Compute unit direction and left normal (+90 deg in screen coords) for each segment
-        segs = []
-        for i in range(len(shaft_pts) - 1):
-            dx = shaft_pts[i + 1][0] - shaft_pts[i][0]
-            dy = shaft_pts[i + 1][1] - shaft_pts[i][1]
-            d = math.hypot(dx, dy)
-            if d > 1e-3:
-                ux, uy = dx / d, dy / d
-                segs.append((ux, uy, -uy, ux))
-        if not segs:
-            return None
-
-        left_side: List[Tuple[float, float]] = []
-        right_side: List[Tuple[float, float]] = []
-        n_pts = len(shaft_pts)
-        for i, pt in enumerate(shaft_pts):
-            if i == 0:
-                _, _, nx, ny = segs[0]
-                mx, my = nx * half_w, ny * half_w
-            elif i == n_pts - 1:
-                _, _, nx, ny = segs[-1]
-                mx, my = nx * half_w, ny * half_w
-            else:
-                _, _, nx0, ny0 = segs[min(i - 1, len(segs) - 1)]
-                _, _, nx1, ny1 = segs[min(i, len(segs) - 1)]
-                rx, ry = nx0 + nx1, ny0 + ny1
-                norm2 = rx * rx + ry * ry
-                if norm2 < 0.25:
-                    mx, my = nx1 * half_w, ny1 * half_w
-                else:
-                    norm = math.sqrt(norm2)
-                    scale = min(2.5 * half_w / norm, 2.0 * half_w / norm2)
-                    mx, my = rx * scale, ry * scale
-            left_side.append((pt[0] + mx, pt[1] + my))
-            right_side.append((pt[0] - mx, pt[1] - my))
-
-        if arrow:
-            _, _, nkx, nky = segs[-1]
-            bpt = shaft_pts[-1]
-            wing_l = (bpt[0] + nkx * head_half_w, bpt[1] + nky * head_half_w)
-            wing_r = (bpt[0] - nkx * head_half_w, bpt[1] - nky * head_half_w)
-            poly_pts = left_side + [wing_l, tip, wing_r] + list(reversed(right_side))
-        else:
-            poly_pts = left_side + list(reversed(right_side))
-
-        return self._build_poly(poly_pts, True, fill=fill_expr, stroke="none", name=name)
-
-    def _port_point_and_normal(self, node_id: str, port: str, spread_px: float) -> Tuple[Tuple[float, float], Tuple[float, float]]:
-        node = self._nodes[node_id]
-        x, y, w, h, cx, cy = node["x"], node["y"], node["w"], node["h"], node["cx"], node["cy"]
-        key = (node_id, port)
-        k = self._port_counts.get(key, 0)
-        self._port_counts[key] = k + 1
-        # Deterministic alternating offset sequence: 0, +1, -1, +2, -2, ...
-        if k == 0:
-            step = 0
-        else:
-            step = ((k + 1) // 2) * (1 if k % 2 == 1 else -1)
-
-        if port == "top":
-            off = max(-0.3 * w, min(0.3 * w, step * spread_px))
-            return (cx + off, y), (0.0, -1.0)
-        if port == "bottom":
-            off = max(-0.3 * w, min(0.3 * w, step * spread_px))
-            return (cx + off, y + h), (0.0, 1.0)
-        if port == "left":
-            off = max(-0.3 * h, min(0.3 * h, step * spread_px))
-            return (x, cy + off), (-1.0, 0.0)
-        if port == "right":
-            off = max(-0.3 * h, min(0.3 * h, step * spread_px))
-            return (x + w, cy + off), (1.0, 0.0)
-        raise ValueError(f"Unsupported port '{port}' (expected 'top', 'bottom', 'left', or 'right')")
-
-    def connect(
-        self,
-        src_id: str,
-        dst_id: str,
-        style: str = "ortho",
-        from_port: str = "auto",
-        to_port: str = "auto",
-        stroke: Any = "accent:2",
-        head_size: float = 9.0,
-        label: str = "",
-        label_fill: str = "bg",
-        arrow: bool = True,
-        spread_px: float = 14.0,
+        box: Tuple[float, float, float, float],
+        variant: str = "default",
+        rx: Union[float, str, None] = None,
+        padding: Union[float, str] = "p-5",
+        fill: Any = None,
+        stroke: Any = None,
+        kicker: str = "",
+        kicker_color: str = "accent",
+        title: str = "",
+        title_size: Union[float, str] = "text-lg",
+        title_color: str = "ink",
+        body: str = "",
+        body_size: Union[float, str] = "text-sm",
+        body_color: str = "muted",
+        id: Optional[str] = None,
         name: Optional[str] = None,
-    ):
-        """Connect two registered nodes (by id) with auto-port routing ('ortho', 'bezier', 'straight')."""
-        if src_id not in self._nodes:
-            raise KeyError(f"Unknown source node id '{src_id}'. Pass id='{src_id}' when creating rect/pill/circle/ellipse.")
-        if dst_id not in self._nodes:
-            raise KeyError(f"Unknown destination node id '{dst_id}'. Pass id='{dst_id}' when creating rect/pill/circle/ellipse.")
+    ) -> Tuple[float, float, float, float]:
+        """
+        Draw a themed container card and return remaining `(x, y, w, h)` inner box.
 
-        src = self._nodes[src_id]
-        dst = self._nodes[dst_id]
-        dx = dst["cx"] - src["cx"]
-        dy = dst["cy"] - src["cy"]
+        Supports variants `'default'`, `'accent'`, `'subtle'`, `'dashed'` blended against
+        the local background, optional `kicker`/`title`/`body`, and returns the inset content rect.
+        """
+        bx, by, bw, bh = box
+        cfg = CARD_VARIANTS.get(variant, CARD_VARIANTS["default"])
+        local_bg = self._effective_bg_at(bx, by, bw, bh)
+        use_rx = self.default_rx if rx is None else rx
 
-        if abs(dx) >= abs(dy):
-            auto_from, auto_to = ("right", "left") if dx >= 0 else ("left", "right")
+        if fill is not None:
+            use_fill = fill
         else:
-            auto_from, auto_to = ("bottom", "top") if dy >= 0 else ("top", "bottom")
-
-        fp = auto_from if from_port == "auto" else from_port.lower()
-        tp = auto_to if to_port == "auto" else to_port.lower()
-
-        (x1, y1), (nx1, ny1) = self._port_point_and_normal(src_id, fp, spread_px)
-        (x2, y2), (nx2, ny2) = self._port_point_and_normal(dst_id, tp, spread_px)
-
-        st = self.parse_stroke(stroke)
-        c_expr = f"#{st['hex']}@{st['opacity']}" if st.get("opacity") is not None else f"#{st.get('hex', self.resolve_hex('accent'))}"
-        half_w = max(0.75, (float(st.get("width", 2.0)) * (4.0 / 3.0)) / 2.0)
-
-        mode = style.lower()
-        if mode == "straight":
-            pts = [(x1, y1), (x2, y2)]
-        elif mode == "bezier":
-            dist = max(40.0, math.hypot(x2 - x1, y2 - y1) * 0.42)
-            c1 = (x1 + nx1 * dist, y1 + ny1 * dist)
-            c2 = (x2 + nx2 * dist, y2 + ny2 * dist)
-            pts = []
-            for s in range(21):
-                t = s / 20.0
-                u = 1.0 - t
-                bx = u**3 * x1 + 3 * (u**2) * t * c1[0] + 3 * u * (t**2) * c2[0] + t**3 * x2
-                by = u**3 * y1 + 3 * (u**2) * t * c1[1] + 3 * u * (t**2) * c2[1] + t**3 * y2
-                pts.append((bx, by))
-        else:  # "ortho"
-            h_from = fp in ("left", "right")
-            h_to = tp in ("left", "right")
-            if h_from and h_to:
-                mid_x = (x1 + x2) / 2.0
-                pts = [(x1, y1), (mid_x, y1), (mid_x, y2), (x2, y2)]
-            elif (not h_from) and (not h_to):
-                mid_y = (y1 + y2) / 2.0
-                pts = [(x1, y1), (x1, mid_y), (x2, mid_y), (x2, y2)]
-            elif h_from and (not h_to):
-                pts = [(x1, y1), (x2, y1), (x2, y2)]
+            f_hx, f_op = self.parse_color_alpha(cfg["fill"], default="surface", base_bg_hex=local_bg)
+            if f_hx == "none":
+                use_fill = "none"
+            elif f_op is not None:
+                use_fill = f"#{f_hx}@{f_op}"
             else:
-                pts = [(x1, y1), (x1, y2), (x2, y2)]
+                use_fill = f"#{f_hx}"
 
-        conn_name = name or f"vec_conn_{self._next_id()}"
-        is_dashed = st.get("dash", "solid") != "solid"
-        if is_dashed:
-            # Draw dashed path and optionally attach a solid arrowhead at the tip
-            path_pts = list(pts)
-            if arrow and len(path_pts) >= 2:
-                tx, ty = path_pts[-1]
-                px_p, py_p = path_pts[-2]
-                sd = math.hypot(tx - px_p, ty - py_p)
-                if sd > 1e-3:
-                    ux, uy = (tx - px_p) / sd, (ty - py_p) / sd
-                    hlen = min(head_size * 0.9, sd * 0.65)
-                    bx, by = tx - ux * hlen, ty - uy * hlen
-                    path_pts[-1] = (bx, by)
-                    self.polyline(path_pts, stroke=stroke, name=conn_name)
-                    nx_u, ny_u = -uy, ux
-                    hhw = max(half_w + 1.5, head_size * math.sin(math.pi / 6.5))
-                    shp = self._build_poly(
-                        [(tx, ty), (bx + nx_u * hhw, by + ny_u * hhw), (bx - nx_u * hhw, by - ny_u * hhw)],
-                        True, fill=c_expr, stroke="none", name=f"{conn_name}_head",
-                    )
-                else:
-                    shp = self.polyline(path_pts, stroke=stroke, name=conn_name)
-            else:
-                shp = self.polyline(path_pts, stroke=stroke, name=conn_name)
+        if stroke is not None:
+            use_stroke = stroke
         else:
-            shp = self._extrude_arrow_poly(pts, half_w, head_size, arrow, c_expr, conn_name)
-
-        if label:
-            # Compute geometric arc-length midpoint of path
-            if len(pts) == 2:
-                mx, my = (pts[0][0] + pts[1][0]) / 2.0, (pts[0][1] + pts[1][1]) / 2.0
+            s_hx, s_op = self.parse_color_alpha(cfg["stroke"], default="border", base_bg_hex=local_bg)
+            if s_hx == "none":
+                use_stroke = "none"
             else:
-                seg_lens = [math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) for i in range(len(pts) - 1)]
-                total_len = sum(seg_lens)
-                half_len = total_len / 2.0
-                acc = 0.0
-                mx, my = pts[len(pts) // 2]
-                for i, sl in enumerate(seg_lens):
-                    if acc + sl >= half_len and sl > 1e-3:
-                        t = (half_len - acc) / sl
-                        mx = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t
-                        my = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t
-                        break
-                    acc += sl
-            lw = max(56.0, len(str(label)) * 7.5 + 20.0)
-            lh = 22.0
-            self.pill(
-                mx - lw / 2.0, my - lh / 2.0, lw, lh,
-                fill=label_fill, stroke="border:0.75",
-                text=str(label), size=9.5, color="muted", bold=True,
-                name=f"conn_lbl_{self._next_id()}",
-            )
-        return shp
+                b_pt = self.default_border_pt if variant == "default" else cfg.get("border_pt", self.default_border_pt)
+                dash = cfg.get("dash", "solid")
+                c_part = f"#{s_hx}@{s_op}" if s_op is not None else f"#{s_hx}"
+                use_stroke = f"{c_part}:{b_pt}:{dash}" if dash != "solid" else f"{c_part}:{b_pt}"
 
-    def polyline(self, points: List[Tuple[float, float]], stroke: Any = "accent:2", fill: Any = "none", closed: bool = False, name: Optional[str] = None):
-        return self._build_poly(points, closed, fill, stroke, name or f"vec_poly_{self._next_id()}")
+        self.rect(bx, by, bw, bh, rx=use_rx, fill=use_fill, stroke=use_stroke, id=id, name=name)
 
-    def bezier(self, p0: Tuple[float, float], p1: Tuple[float, float], p2: Tuple[float, float], p3: Tuple[float, float], stroke: Any = "accent:2", fill: Any = "none", steps: int = 20, name: Optional[str] = None):
-        pts = []
-        for s in range(steps + 1):
-            t = s / steps
-            u = 1.0 - t
-            bx = u**3 * p0[0] + 3 * (u**2) * t * p1[0] + 3 * u * (t**2) * p2[0] + t**3 * p3[0]
-            by = u**3 * p0[1] + 3 * (u**2) * t * p1[1] + 3 * u * (t**2) * p2[1] + t**3 * p3[1]
-            pts.append((bx, by))
-        return self._build_poly(pts, False, fill, stroke, name or f"vec_poly_{self._next_id()}")
+        pad = TokenResolver.resolve_spacing(padding, 20.0)
+        ix = bx + pad
+        iw = max(20.0, bw - 2.0 * pad)
+        cur_y = by + pad
 
-    def curve(self, points: List[Tuple[float, float]], stroke: Any = "accent:2", fill: Any = "none", closed: bool = False, tension: float = 0.5, name: Optional[str] = None):
-        """Smooth Catmull-Rom spline through arbitrary control points."""
-        n = len(points)
-        if n < 2:
-            return None
-        if n == 2:
-            return self.polyline(points, stroke=stroke, fill=fill, closed=closed, name=name)
-        sampled: List[Tuple[float, float]] = [points[0]]
-        segs = n if closed else n - 1
-        for i in range(segs):
-            p0 = points[(i - 1) % n] if closed else points[max(0, i - 1)]
-            p1 = points[i % n]
-            p2 = points[(i + 1) % n]
-            p3 = points[(i + 2) % n] if closed else points[min(n - 1, i + 2)]
-            for step in range(1, 13):
-                t = step / 12.0
-                t2, t3 = t * t, t * t * t
-                x = 0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3)
-                y = 0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3)
-                sampled.append((x, y))
-        return self._build_poly(sampled, closed, fill, stroke, name or f"vec_poly_{self._next_id()}")
+        if kicker and str(kicker).strip():
+            cur_y = self.text_auto(ix, cur_y, iw, kicker, size="text-xs", color=kicker_color, bold=True, role="mono") + 6.0
+        if title and str(title).strip():
+            cur_y = self.text_auto(ix, cur_y, iw, title, size=title_size, color=title_color, bold=True, role="heading") + 6.0
+        if body and str(body).strip():
+            cur_y = self.text_auto(ix, cur_y, iw, body, size=body_size, color=body_color, line_height=1.4, role="body") + 8.0
 
-    def path(self, d: str, x: float = 0.0, y: float = 0.0, scale: float = 1.0, stroke: Any = "accent:2", fill: Any = "none", name: Optional[str] = None):
-        ops = _parse_svg_path(d)
-        subpaths: List[Tuple[List[Tuple[float, float]], bool]] = []
-        cur: List[Tuple[float, float]] = []
-        fx, fy = 0.0, 0.0
-        for kind, pts in ops:
-            if kind == "M":
-                if len(cur) >= 2:
-                    subpaths.append((cur, False))
-                fx, fy = pts[0]
-                cur = [(x + fx * scale, y + fy * scale)]
-            elif kind == "L":
-                fx, fy = pts[0]
-                cur.append((x + fx * scale, y + fy * scale))
-            elif kind == "C":
-                p0x, p0y = fx, fy
-                (p1x, p1y), (p2x, p2y), (p3x, p3y) = pts
-                for st in range(1, 17):
-                    t = st / 16.0
-                    u = 1.0 - t
-                    bx = u**3 * p0x + 3 * (u**2) * t * p1x + 3 * u * (t**2) * p2x + t**3 * p3x
-                    by = u**3 * p0y + 3 * (u**2) * t * p1y + 3 * u * (t**2) * p2y + t**3 * p3y
-                    cur.append((x + bx * scale, y + by * scale))
-                fx, fy = p3x, p3y
-            elif kind == "Z":
-                if len(cur) >= 2:
-                    subpaths.append((cur, True))
-                cur = []
-        if len(cur) >= 2:
-            subpaths.append((cur, False))
-        last_shp = None
-        for sp_pts, closed in subpaths:
-            last_shp = self._build_poly(sp_pts, closed, fill, stroke, name or f"vec_poly_{self._next_id()}")
-        return last_shp
-
-    def arc(self, cx: float, cy: float, r: float, start_deg: float = 0, end_deg: float = 270, stroke: Any = "accent:2", fill: Any = "none", ry: Optional[float] = None, name: Optional[str] = None):
-        ry_v = r if ry is None else ry
-        sweep = end_deg - start_deg
-        steps = max(24, int(math.ceil(abs(sweep) / 3.0)))
-        pts = [(cx + r * math.cos(math.radians(start_deg + sweep * (i / steps))), cy + ry_v * math.sin(math.radians(start_deg + sweep * (i / steps)))) for i in range(steps + 1)]
-        return self._build_poly(pts, False, fill, stroke, name or f"vec_arc_{self._next_id()}")
-
-    def donut(self, cx: float, cy: float, r: float, start_deg: float = -90, end_deg: float = 180, thickness: float = 0.24, fill: Any = "accent", stroke: Any = "none", ry: Optional[float] = None, name: Optional[str] = None):
-        ry_out = r if ry is None else ry
-        thick = max(0.05, min(0.9, thickness))
-        rx_in, ry_in = r * (1.0 - thick), ry_out * (1.0 - thick)
-        sweep = end_deg - start_deg
-        steps = max(24, int(math.ceil(abs(sweep) / 3.0)))
-        outer = [(cx + r * math.cos(math.radians(start_deg + sweep * (i / steps))), cy + ry_out * math.sin(math.radians(start_deg + sweep * (i / steps)))) for i in range(steps + 1)]
-        inner = [(cx + rx_in * math.cos(math.radians(start_deg + sweep * (i / steps))), cy + ry_in * math.sin(math.radians(start_deg + sweep * (i / steps)))) for i in range(steps, -1, -1)]
-        return self._build_poly(outer + inner, True, fill, stroke, name or f"vec_arc_{self._next_id()}")
+        return (round(ix, 2), round(cur_y, 2), round(iw, 2), round(max(0.0, by + bh - pad - cur_y), 2))
 
     def text(
         self,
@@ -1061,7 +848,7 @@ class SlideCanvas:
         w: float,
         h: float,
         text: str,
-        size: float = 15.0,
+        size: Union[float, str] = 15.0,
         color: str = "ink",
         bold: bool = False,
         align: str = "left",
@@ -1070,10 +857,15 @@ class SlideCanvas:
         role: Optional[str] = None,
         pad_px: float = 3.0,
         name: Optional[str] = None,
+        bg_hex: Optional[str] = None,
     ) -> float:
         tb = self.slide.shapes.add_textbox(px(x), px(y), px(max(8.0, w)), px(max(8.0, h)))
         tb.name = name or f"txt_{self._next_id()}"
-        self._set_text(tb, text, size=size, color=color, bold=bold, align=align, valign=valign, font=font, role=role, pad_x_px=pad_px, pad_v_px=pad_px)
+        eff_bg = bg_hex or self._effective_bg_at(x, y, w, h)
+        self._set_text(
+            tb, text, size=size, color=color, bold=bold, align=align, valign=valign,
+            font=font, role=role, pad_x_px=pad_px, pad_v_px=pad_px, bg_hex=eff_bg,
+        )
         return round(y + h, 2)
 
     def text_auto(
@@ -1082,23 +874,30 @@ class SlideCanvas:
         y: float,
         w: float,
         text: str,
-        size: float = 15.0,
+        size: Union[float, str] = 15.0,
         color: str = "ink",
         bold: bool = False,
         align: str = "left",
         font: Optional[str] = None,
         role: Optional[str] = None,
-        line_height: float = 1.38,
+        line_height: Optional[float] = None,
         pad_px: float = 3.0,
         name: Optional[str] = None,
     ) -> float:
         """Measure wrapped CJK/Latin text height and place textbox, returning bottom_y."""
         if not text or not str(text).strip():
             return y
+        pt_size, default_lh = TokenResolver.resolve_typography(size, default_lh=1.38)
+        eff_lh = float(line_height) if line_height is not None else default_lh
         w_cm = max(1.0, (w - 2 * pad_px) * PX_TO_CM)
-        _, est_h_cm, _ = wrap_and_measure_text(str(text), box_w_cm=w_cm, font_size_pt=size, bold=bold, line_height=line_height, pad_v_cm=0.14)
+        _, est_h_cm, _ = wrap_and_measure_text(
+            str(text), box_w_cm=w_cm, font_size_pt=pt_size, bold=bold, line_height=eff_lh, pad_v_cm=0.14
+        )
         h_px = max(18.0, est_h_cm * CM_TO_PX + 2 * pad_px)
-        self.text(x, y, w, h_px, text, size=size, color=color, bold=bold, align=align, valign="top", font=font, role=role, pad_px=pad_px, name=name)
+        self.text(
+            x, y, w, h_px, text, size=pt_size, color=color, bold=bold, align=align,
+            valign="top", font=font, role=role, pad_px=pad_px, name=name,
+        )
         return round(y + h_px, 2)
 
     def stat(
@@ -1108,15 +907,23 @@ class SlideCanvas:
         w: float,
         value: str,
         label: str,
-        val_size: float = 46.0,
-        lbl_size: float = 13.5,
+        val_size: Union[float, str] = 46.0,
+        lbl_size: Union[float, str] = 13.5,
         val_color: str = "accent",
         lbl_color: str = "ink",
         align: str = "left",
     ) -> float:
-        y1 = self.text_auto(x, y, w, value, size=val_size, color=val_color, bold=True, align=align, role="kpi", line_height=1.18, pad_px=2, name=f"stat_val_{self._next_id()}")
+        val_pt, _ = TokenResolver.resolve_typography(val_size)
+        lbl_pt, _ = TokenResolver.resolve_typography(lbl_size)
+        y1 = self.text_auto(
+            x, y, w, value, size=val_pt, color=val_color, bold=True, align=align,
+            role="kpi", line_height=1.18, pad_px=2, name=f"stat_val_{self._next_id()}",
+        )
         if label:
-            return self.text_auto(x, y1 + 4, w, label, size=lbl_size, color=lbl_color, bold=False, align=align, role="body", line_height=1.35, pad_px=2, name=f"stat_lbl_{self._next_id()}")
+            return self.text_auto(
+                x, y1 + 4, w, label, size=lbl_pt, color=lbl_color, bold=False, align=align,
+                role="body", line_height=1.35, pad_px=2, name=f"stat_lbl_{self._next_id()}",
+            )
         return y1
 
     def table(
@@ -1143,10 +950,12 @@ class SlideCanvas:
 
         hl_map = {(int(hc.get("row", -1)), int(hc.get("col", -1))): hc.get("color", "accent") for hc in (highlight_cells or [])}
         border_hex = self.resolve_hex("border_grid")
+        if border_hex == "none":
+            border_hex = "D1D1D6"
 
         def style_cell(cell, txt: str, fill_hex: str, txt_hex: str, size_pt: float, is_bold: bool, font_role: str):
             cell.fill.solid()
-            cell.fill.fore_color.rgb = _hex_to_rgb(fill_hex)
+            cell.fill.fore_color.rgb = _oxml_rgb(fill_hex)
             cell.vertical_anchor = MSO_ANCHOR.MIDDLE
             cell.margin_left = px(10)
             cell.margin_right = px(10)
@@ -1168,19 +977,26 @@ class SlideCanvas:
             r.font.name = self._resolve_font(role=font_role)
             r.font.size = Pt(size_pt)
             r.font.bold = is_bold
-            r.font.color.rgb = _hex_to_rgb(txt_hex)
+            r.font.color.rgb = _oxml_rgb(txt_hex)
 
         r_ptr = 0
         if headers:
+            hdr_fill = self.resolve_hex("surface")
+            if hdr_fill == "none":
+                hdr_fill = "FFFFFF"
+            hdr_txt = TokenResolver.ensure_contrast("accent2", hdr_fill, palette=self.palette, min_ratio=4.5)
             for ci, htxt in enumerate(headers):
-                style_cell(tbl.cell(0, ci), htxt, self.resolve_hex("surface"), self.resolve_hex("accent2"), 12.0, True, "mono")
+                style_cell(tbl.cell(0, ci), htxt, hdr_fill, hdr_txt, 12.0, True, "mono")
             r_ptr = 1
 
+        row_fill = self.resolve_hex("bg")
+        if row_fill == "none":
+            row_fill = self._current_bg_hex
         for ri, row_vals in enumerate(rows):
             for ci, val in enumerate(row_vals):
                 hl = hl_map.get((ri, ci))
-                txt_hex = self.resolve_hex(hl) if hl else self.resolve_hex("ink")
-                style_cell(tbl.cell(r_ptr + ri, ci), val, self.resolve_hex("bg"), txt_hex, 13.5, bool(ci == 0 or hl), "body")
+                txt_hex = TokenResolver.ensure_contrast(hl if hl else "ink", row_fill, palette=self.palette, min_ratio=4.5)
+                style_cell(tbl.cell(r_ptr + ri, ci), val, row_fill, txt_hex, 13.5, bool(ci == 0 or hl), "body")
         return gf
 
     def image(self, path: str, x: float, y: float, w: float, h: Optional[float] = None, name: str = "image_asset"):
@@ -1202,11 +1018,18 @@ class SlideCanvas:
 
 def run_cli(
     slide_funcs: List[Callable[[SlideCanvas, int], None]],
-    palette: Optional[Dict[str, str]] = None,
+    palette: Optional[Union[Dict[str, str], SlideTheme]] = None,
     typography: Optional[Dict[str, str]] = None,
     default_out: str = "build/deck.pptx",
     template_path: Optional[str] = None,
+    theme: Optional[SlideTheme] = None,
 ):
+    """CLI entrypoint for building all slides or rebuilding a single slide."""
+    if isinstance(palette, SlideTheme):
+        if theme is None:
+            theme = palette
+        palette = None
+
     parser = argparse.ArgumentParser(description="Build presentation via SlideCanvas 1280x720 API.")
     parser.add_argument("--all", action="store_true", help="Build all slides from scratch")
     parser.add_argument("--slide", "-n", type=int, help="Rebuild single 1-based slide")
@@ -1219,14 +1042,20 @@ def run_cli(
     if args.slide:
         if args.slide < 1 or args.slide > total:
             raise ValueError(f"Slide {args.slide} out of range (1..{total})")
-        c = SlideCanvas(pptx_path=out_path if os.path.exists(out_path) else None, palette=palette, typography=typography, template_path=template_path)
+        c = SlideCanvas(
+            pptx_path=out_path if os.path.exists(out_path) else None,
+            palette=palette,
+            typography=typography,
+            template_path=template_path,
+            theme=theme,
+        )
         c.select_slide(args.slide)
         slide_funcs[args.slide - 1](c, total)
         saved = c.save(out_path)
         print(f'{{"status": "OK", "built_slide": {args.slide}, "pptx": "{saved}"}}')
     else:
-        c = SlideCanvas(palette=palette, typography=typography, template_path=template_path)
-        for idx, fn in enumerate(slide_funcs, start=1):
+        c = SlideCanvas(palette=palette, typography=typography, template_path=template_path, theme=theme)
+        for fn in slide_funcs:
             c.new_slide()
             fn(c, total)
         saved = c.save(out_path)
