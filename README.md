@@ -16,15 +16,15 @@ Zero binary dependencies · CJK-aware typography · WCAG contrast guard · Dual 
 <table>
   <tr>
     <td width="33%" align="center">
-      <img src="assets/slide-1.png?v=4" alt="Why SlideCanvas Beats Static Templates" width="100%" /><br />
-      <sub><b>01 · Freedom with Guardrails</b></sub>
+      <img src="assets/slide-1.png?v=5" alt="Why SlideCanvas Beats Templates &amp; Flat Images" width="100%" /><br />
+      <sub><b>01 · Code as the Universal Canvas</b></sub>
     </td>
     <td width="33%" align="center">
-      <img src="assets/slide-2.png?v=4" alt="Deterministic Framing &amp; Draw-Time WCAG Guard" width="100%" /><br />
-      <sub><b>02 · Precision Without Fragility</b></sub>
+      <img src="assets/slide-2.png?v=5" alt="Expressive Vector Math &amp; Dynamic Domain Themes" width="100%" /><br />
+      <sub><b>02 · Polar Math &amp; Domain Themes</b></sub>
     </td>
     <td width="33%" align="center">
-      <img src="assets/slide-3.png?v=4" alt="Modular Engine &amp; Automated Verification Gate" width="100%" /><br />
+      <img src="assets/slide-3.png?v=5" alt="Modular Engine &amp; Automated Verification Gate" width="100%" /><br />
       <sub><b>03 · Built to Scale</b></sub>
     </td>
   </tr>
