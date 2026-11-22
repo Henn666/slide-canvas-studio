@@ -16,16 +16,16 @@ Zero binary dependencies · CJK-aware typography · WCAG contrast guard · Dual 
 <table>
   <tr>
     <td width="33%" align="center">
-      <img src="assets/slide-1.png" alt="Studio-Quality Slides, 100% Editable in PowerPoint" width="100%" /><br />
-      <sub><b>01 · 100% Editable in PowerPoint</b></sub>
+      <img src="assets/slide-1.png?v=3" alt="Why SlideCanvas Beats Static Templates" width="100%" /><br />
+      <sub><b>01 · Freedom with Guardrails</b></sub>
     </td>
     <td width="33%" align="center">
-      <img src="assets/slide-2.png" alt="Smart Auto-Layout & Readability" width="100%" /><br />
-      <sub><b>02 · Smart Auto-Layout & Readability</b></sub>
+      <img src="assets/slide-2.png?v=3" alt="Deterministic Framing &amp; Draw-Time WCAG Guard" width="100%" /><br />
+      <sub><b>02 · Precision Without Fragility</b></sub>
     </td>
     <td width="33%" align="center">
-      <img src="assets/slide-3.png" alt="5 Curated Designer Styles" width="100%" /><br />
-      <sub><b>03 · 5 Curated Designer Styles</b></sub>
+      <img src="assets/slide-3.png?v=3" alt="Modular Engine &amp; Automated Verification Gate" width="100%" /><br />
+      <sub><b>03 · Built to Scale</b></sub>
     </td>
   </tr>
 </table>
