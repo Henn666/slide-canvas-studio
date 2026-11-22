@@ -1,95 +1,124 @@
-# Style Profile: Swiss International Style (`swiss-international`)
+# Style Profile: Swiss Editorial & Surface Layering (`swiss-international`)
 
-**適用場景**：建築與藝術展覽、設計工作室介紹、時尚雜誌專題、強調客觀理性、權威感與高度視覺秩序的企業形象簡報。
+**適用場景**：商業策略簡報、高階產品發表、AI 系統架構與數據儀表板。以「背景三層明度微差（Surface Layering）」、「`0.75pt` 髮絲微光邊框」、「固定物理圓角（`rx=12`）」與「`1.4×` 寬鬆行距」取代傳統厚重框線與大圓角，建立精密儀表板與現代瑞士編輯部質感。
 
 ---
 
-## 一、 風格色票與字體設定（`PALETTE`）
+## 一、 色彩系統配方（Surface Layering & Tinted Neutrals）
 
+> **核心鐵律**：絕對避免純黑（`#000000`）與高飽和正色（`#FF0000`、`#0000FF`）。全頁點綴主色（Accent）不超過 1～2 種。
+
+### 選項 A：極簡瑞士紙感風（Light Editorial — 商業策略、產品簡報）
 ```python
-PALETTE = {
-    "bg": "#F4F3EF",        # 瑞士印刷紙張米白（也可改用純白 #FFFFFF）
-    "surface": "#FFFFFF",   # 純白區塊或對比區塊
-    "ink": "#0A0A0A",       # 極致純黑（巨型標題與格線文字）
-    "muted": "#525252",     # 中性深灰（極小尺寸說明內文與編號）
-    "border": "#0A0A0A",    # 銳利純黑分割格線（0.75pt~1.5pt）
-    "accent": "#E1251B",    # 瑞士國際紅（唯一高純度強調色，點燃視覺張力）
-    "accent2": "#0A0A0A",   # 黑白單色輔助
-    "font_heading": "Helvetica Neue",  # 或 Arial / PingFang TC
-    "font_body": "Helvetica Neue",
+PALETTE_LIGHT = {
+    "bg": "#F8FAFC",        # 冷調微灰白畫布（取代刺眼純白）
+    "surface": "#FFFFFF",   # 純白卡片浮於微灰白畫布上，無需陰影即有自然層次
+    "ink": "#0F172A",       # 深石板黑主標題
+    "muted": "#475569",     # 內文灰藍（標籤註解可用 #94A3B8）
+    "border": "#E2E8F0",    # 髮絲級邊框（線寬鎖定 0.75pt）
+    "accent": "#1D4ED8",    # 深邃科技藍（膠囊底色採極淺變體 #EFF6FF 配深藍字）
+    "accent2": "#0F766E",   # 沉穩松石綠
+    "font_heading": "Noto Sans TC",  # 英文數字可用 Inter / Segoe UI / Arial
+    "font_body": "Noto Sans TC",
+    "font_mono": "Menlo",
+}
+```
+
+### 選項 B：現代深色科技風（Dark Bento — 技術架構、AI 系統展示）
+```python
+PALETTE_DARK = {
+    "bg": "#0B0F19",        # 帶極微冷藍調的深炭黑畫布
+    "surface": "#111827",   # 一級卡片底色（與畫布拉開 4%–6% 明度差）
+    "surface2": "#1E293B",  # 二級強調卡片／內嵌子模組底色
+    "ink": "#F8FAFC",       # 95% 亮白主標題（避免刺眼）
+    "muted": "#94A3B8",     # 冷灰藍內文（次要標籤可用 #64748B）
+    "border": "#1F2937",    # 低飽和微光髮絲邊框（或 #334155，線寬 0.75pt–1.0pt）
+    "accent": "#38BDF8",    # 電光藍（關鍵指標數字、狀態膠囊、焦點連線）
+    "accent2": "#34D399",   # 翡翠綠（亦可選琥珀金 #FBBF24）
+    "font_heading": "Noto Sans TC",
+    "font_body": "Noto Sans TC",
     "font_mono": "Menlo",
 }
 ```
 
 ---
 
-## 二、 核心視覺規則（SlideCanvas 實作要點）
+## 二、 字級階梯、幾何圓角與 8pt 空間配方（1280×720 像素換算）
 
-1. **嚴格數學網格與顯性分割線（Strict Grid & Hairline Rules）**：
-   - 不使用任何圓角（一律 `rx=0`）、不使用陰影、不使用漸層。
-   - 使用 `c.line(...)` 繪製貫穿畫布的水平與垂直黑色格線（`stroke="border:1"`），所有文字與區塊左緣嚴格對齊格線座標。
-2. **極端字級張力與非對稱留白（Extreme Scale Contrast）**：
-   - 左側或上方放置超大無襯線標題（`44pt`～`58pt` Bold，緊湊行距 `1.05`～`1.15`），右側或下方搭配極小精緻內文（`11.5pt`～`13pt`）。
-   - 故意保留 1～2 個空白網格不填任何文字，展現建築空間感。
-3. **紅、黑、白三色紀律**：
-   - 95% 面積由紙白與純黑構成，僅在一個關鍵幾何色塊、巨型編號或核心結論使用瑞士紅（`#E1251B`）。
+1. **黃金字級階梯與跨平台字體**：
+   - 英文／數字建議 `Inter`、`Segoe UI` 或 `Arial`；繁體中文鎖定 `Noto Sans TC` 或 `Microsoft JhengHei`。
+   - **Hero KPI 巨型數字**：`40–48 pt` Bold，`line_height=1.0`。
+   - **投影片主標題**：`24–28 pt` Bold，`line_height=1.15`。
+   - **卡片標題**：`14–16 pt` Bold，`line_height=1.2`。
+   - **內文要點**：`11–12 pt` Regular，**強制 `line_height=1.4`（`1.35–1.45`）**消除擁擠感。
+   - **微型標籤（Kicker / Badge）**：`9–10 pt` Bold 英文全大寫。
+2. **圓角曲率修正（維持 `~0.12 in = 12 px` 一致物理半徑）**：
+   - `SlideCanvas` 的 `c.rect(..., rx=12)` 會自動依短邊動態計算 OpenXML `adjustments[0]`，確保大小卡片皆維持精緻微圓角（大卡片約 `0.03–0.04`、中卡片約 `0.05–0.06`），徹底擺脫預設 `0.16667` 的臃腫膠囊感；僅狀態標籤使用 `c.pill()`（全圓角 `0.5`）形成幾何對比。
+3. **邊框與連接線規範**：
+   - **卡片邊框**：嚴格鎖定 `0.75 pt` 至 `1.0 pt`（如 `stroke="border:0.75"`）。
+   - **連接線（`c.connect()`）**：線寬 `1.25 pt` 至 `1.5 pt`（切忌超過 `2 pt`），非關鍵路徑使用次要灰藍（`#475569:1.25` 或 `#64748B:1.25`），箭頭採小巧精緻尺寸（`head_size=7.5`）。
+4. **空間留白與 8pt 網格節奏（`13.333×7.5 in` = `1280×720 px`）**：
+   - **網格間距（Gutter）**：統一 `18–21 px`（建議 `gap=20`）。
+   - **卡片內距（Padding）**：標準卡片 `pad=22 px`，高密度數據卡片 `pad=16 px`。
+   - **留白紅線**：純背景 ＋ 卡片內部留白須佔總畫布 **35%–45%**；若文字超過卡片高度 `75%` 應降階字級或拆分卡片。
 
 ---
 
-## 三、 `SlideCanvas` 完整單頁範例
+## 三、 `SlideCanvas` 完整單頁範例（Light Editorial ＋ Dark Bento 通用寫法）
 
 ```python
-def slide_swiss_international(c, total):
+def slide_swiss_layered(c, total):
     c.new_slide(bg="bg")
-
-    # 1. 頂部貫穿式極簡索引欄
-    c.text(68, 36, 400, 24, "01 / SWISS TYPOGRAPHIC GRID", size=11, bold=True, color="ink", role="mono")
-    c.text(900, 36, 312, 24, "ZÜRICH — 1957 / 2026", size=11, bold=False, color="muted", align="right", role="mono")
-    c.line(68, 68, 1212, 68, stroke="border:1.5")
-
-    # 2. 嚴格 3 欄隱形網格座標（左寬右窄非對稱）
-    col_l, col_m, col_r = c.cols(3, x=68, y=92, w=1144, h=540, gap=32, weights=[1.5, 1.0, 1.0])
-
-    # 左欄：巨型非對稱標題 + 瑞士紅幾何色塊
-    y_h = c.text_auto(
-        col_l[0], col_l[1], col_l[2],
-        "秩序、客觀\n與網格的張力",
-        size=48, bold=True, color="ink", line_height=1.12,
+    c.header(
+        eyebrow="STRATEGIC ARCHITECTURE • SURFACE LAYERING",
+        title="以三層明度微差與 0.75pt 髮絲框，建立精密簡報秩序",
+        subtitle="統一 12px 物理圓角、20px 呼吸通道與 1.4× 寬鬆行距，告別廉價厚框與文字擁擠",
     )
-    c.rect(col_l[0], y_h + 28, 160, 160, rx=0, fill="accent", stroke="none")
-    c.text(col_l[0] + 18, y_h + 132, 124, 42, "N°01", size=24, bold=True, color="#FFFFFF", role="mono")
 
-    # 垂直分割格線
-    c.line(col_m[0] - 16, 92, col_m[0] - 16, 632, stroke="border:0.75")
-    c.line(col_r[0] - 16, 92, col_r[0] - 16, 632, stroke="border:0.75")
+    # 三欄 Bento 佈局，統一 20px 間距（~0.21 in）
+    col1, col2, col3 = c.cols(3, x=58, y=172, w=1164, h=460, gap=20, weights=[1.1, 1.0, 1.0])
 
-    # 中欄：上半部刻意留白，下半部放置小字號條列敘事
-    c.line(col_m[0], 330, col_m[0] + col_m[2], 330, stroke="border:1")
-    ym = c.text_auto(col_m[0], 346, col_m[2], "ASYMMETRIC BALANCE", size=11, bold=True, color="accent", role="mono")
+    # ── 左欄：Hero KPI 主卡片（內距 22px，圓角 rx=12，邊框 0.75pt）──
+    lx, ly, lw, lh = col1
+    c.rect(lx, ly, lw, lh, rx=12, fill="surface", stroke="border:0.75", id="kpi_card")
+    c.pill(lx + 22, ly + 22, 128, 24, fill="#EFF6FF", stroke="none", text="CORE METRIC", size=9.5, color="accent")
+    c.stat(lx + 22, ly + 62, lw - 44, "42.8%", "結構化排版留白佔比", val_size=44, val_color="accent", lbl_color="muted")
     c.text_auto(
-        col_m[0], ym + 10, col_m[2],
-        "摒棄對稱構圖與多餘裝飾，透過嚴謹的數學比例與非對稱留白，讓視線依循字級大小自然流動。",
-        size=13, color="ink", line_height=1.55,
+        lx + 22, ly + 178, lw - 44,
+        "以冷調微灰畫布搭配純白浮動卡片，無需厚重陰影即可形成清晰視覺層次。",
+        size=11.5, color="muted", line_height=1.42,
     )
 
-    # 右欄：數據指標對齊格線頂端與底端
-    c.text_auto(col_r[0], col_r[1], col_r[2], "GRID PRECISION", size=11, bold=True, color="muted", role="mono")
-    c.stat(col_r[0], col_r[1] + 28, col_r[2], "12 COL", "全域座標對齊基準", val_size=40, val_color="ink", lbl_color="muted")
+    # ── 中欄 & 右欄：雙層節點自動連線示範（1.25pt 髮絲連線 + 7.5px 小箭頭）──
+    mx, my, mw, mh = col2
+    rx, ry, rw, rh = col3
+    m_top, m_bot = c.rows(2, x=mx, y=my, w=mw, h=mh, gap=20)
+    r_top, r_bot = c.rows(2, x=rx, y=ry, w=rw, h=rh, gap=20)
 
-    c.line(col_r[0], 330, col_r[0] + col_r[2], 330, stroke="border:1")
-    yr = c.text_auto(col_r[0], 346, col_r[2], "CHROMATIC DISCIPLINE", size=11, bold=True, color="muted", role="mono")
-    c.text_auto(
-        col_r[0], yr + 10, col_r[2],
-        "• 零圓角（0px Radius）\n• 零陰影、零漸層\n• 高對比純黑與瑞士紅",
-        size=13, color="ink", line_height=1.6,
-    )
+    c.rect(*m_top, rx=12, fill="surface", stroke="border:0.75", id="node_a")
+    yt = c.text_auto(m_top[0] + 22, m_top[1] + 22, m_top[2] - 44, "1. 卡片圓角正規化", size=15, bold=True, color="ink")
+    c.text_auto(m_top[0] + 22, yt + 8, m_top[2] - 44, "強制鎖定約 12px 物理圓角，消除預設膨脹膠囊感。", size=11.5, color="muted", line_height=1.42)
 
-    c.line(68, 650, 1212, 650, stroke="border:1")
-    c.footer("INTERNATIONAL TYPOGRAPHIC STYLE", slide_num=1, total_slides=total, line=False)
+    c.rect(*m_bot, rx=12, fill="surface", stroke="border:0.75", id="node_b")
+    yt2 = c.text_auto(m_bot[0] + 22, m_bot[1] + 22, m_bot[2] - 44, "2. 髮絲級邊框控制", size=15, bold=True, color="ink")
+    c.text_auto(m_bot[0] + 22, yt2 + 8, m_bot[2] - 44, "全場邊線鎖定 0.75pt，維持精密儀表板般的俐落邊界。", size=11.5, color="muted", line_height=1.42)
+
+    c.rect(*r_top, rx=12, fill="surface", stroke="border:0.75", id="node_c")
+    yt3 = c.text_auto(r_top[0] + 22, r_top[1] + 22, r_top[2] - 44, "3. 焦點流向指引", size=15, bold=True, color="ink")
+    c.text_auto(r_top[0] + 22, yt3 + 8, r_top[2] - 44, "關鍵路徑使用 1.5pt 主色箭頭，次要連線採低調灰藍。", size=11.5, color="muted", line_height=1.42)
+
+    c.rect(*r_bot, rx=12, fill="surface", stroke="border:0.75", id="node_d")
+    yt4 = c.text_auto(r_bot[0] + 22, r_bot[1] + 22, r_bot[2] - 44, "4. 跨平台字距安全", size=15, bold=True, color="ink")
+    c.text_auto(r_bot[0] + 22, yt4 + 8, r_bot[2] - 44, "鎖定 Inter + Noto Sans TC，確保多平台渲染行高一致。", size=11.5, color="muted", line_height=1.42)
+
+    c.connect("node_a", "node_c", style="ortho", stroke="accent:1.5", head_size=7.5)
+    c.connect("node_b", "node_d", style="ortho", stroke="muted:1.25:dash", head_size=7.5)
+
+    c.footer("Swiss Editorial & Surface Layering • 0.75pt Hairline System", slide_num=1, total_slides=total)
 ```
 
 ---
 
 ## 四、 外部生圖風格錨點（`visual_prompt_anchor`）
 
-> `"Swiss international typographic style poster art on warm off-white paper #F4F3EF, bold geometric black #0A0A0A and Swiss red #E1251B shapes, strict mathematical grid alignment, sharp 90 degree angles, Bauhaus minimalist photography aesthetic, no random text"`
+> `"modern Swiss editorial and Bento UI aesthetic, layered surface tones on cool off-white #F8FAFC (or deep charcoal navy #0B0F19), ultra-thin 0.75pt hairline borders #E2E8F0, subtle 12px rounded corners, crisp slate typography #0F172A, minimal cobalt blue #1D4ED8 or electric cyan #38BDF8 accents, generous whitespace, no heavy drop shadows, no random text"`
