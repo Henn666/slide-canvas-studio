@@ -16,8 +16,8 @@ Zero binary dependencies · CJK-aware typography · WCAG contrast guard · Dual 
 <table>
   <tr>
     <td width="33%" align="center">
-      <img src="assets/slide-1.png?v=6" alt="Why SlideCanvas Beats Templates &amp; Flat Images" width="100%" /><br />
-      <sub><b>01 · Code as the Universal Canvas</b></sub>
+      <img src="assets/slide-1.png?v=7" alt="Freedom Without Fragility — Editorial Manifesto &amp; Editable Canvas" width="100%" /><br />
+      <sub><b>01 · Freedom Without Fragility</b></sub>
     </td>
     <td width="33%" align="center">
       <img src="assets/slide-2.png?v=6" alt="Richer Visuals with 72% Fewer Tokens &amp; Dynamic Domain Synthesis" width="100%" /><br />
