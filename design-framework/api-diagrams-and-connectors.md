@@ -59,10 +59,10 @@
 
 ---
 
-## 三、 經典架構圖寫法範例
+## 三、 經典視覺化寫法範例
 
+### 1. 分支架構拓樸（1 → 2 → 1）
 ```python
-# 用 cols() 切分 3 階段欄位，再用 id + connect() 串聯
 stages = c.cols(3, y=190, h=420, gap=90)
 c.rect(stages[0][0], 240, stages[0][2], 90, rx=14, text="API Gateway", id="gw")
 c.rect(stages[1][0], 190, stages[1][2], 90, rx=14, text="Auth Worker", id="auth", stroke="accent:1.5")
@@ -73,4 +73,12 @@ c.connect("gw", "auth", style="ortho", label="JWT")
 c.connect("gw", "rl", style="ortho", stroke="muted:1.5:dash", label="Quota")
 c.connect("auth", "core", style="bezier", stroke="accent:2")
 c.connect("rl", "core", style="bezier", stroke="accent2:2")
+```
+
+### 2. 平滑面積趨勢圖（Filled Spline Area）
+```python
+pts = [(100, 480), (220, 430), (340, 360), (460, 260), (580, 220)]
+area_pts = [(pts[0][0], 520)] + pts + [(pts[-1][0], 520)]
+c.polyline(area_pts, stroke="none", fill="accent@0.12", closed=True)
+c.curve(pts, stroke="accent:2.5")
 ```

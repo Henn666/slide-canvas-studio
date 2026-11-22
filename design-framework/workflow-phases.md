@@ -30,4 +30,4 @@
 | `overflow_risk` 非空 | 文字框高小於行高估算 | 改用 `c.text_auto(...)`、加寬 `w` 或精簡文案，再執行 `python3 design/build_deck.py --slide N`（秒級重建該頁）。 |
 | `overlap_pairs` 非空 | 兩個獨立語意元件相交 | 調整該函式內的 `y` 推算（串接 `bottom_y`）或調整 `cols(..., gap=...)`，重跑 `--slide N`。 |
 | `out_of_bounds` 非空 | 元件侵入安全邊界外 | 收回 `x: 68..1212, y: 42..650` 範圍並重跑 `--slide N`。 |
-| `slide_N.png` 視覺失衡或單調 | 全頁堆滿矩形卡片或過於擁擠 | 去框（De-boxing）、調降邊框透明度（`@0.25`），或改用 `polar()` / `bezier()` / `donut()` / `glow()` 重構構圖重心後重跑 `--slide N`。 |
+| `slide_N.png` 視覺失衡或單調 | 全頁堆滿同質卡片或連頁構圖重複 | 依該頁語意切換視覺形式（如開放畫布去框留白、趨勢面積曲線、分支架構連線、對比表格或環狀圖），重跑 `--slide N`。 |

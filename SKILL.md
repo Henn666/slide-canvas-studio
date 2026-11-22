@@ -6,7 +6,7 @@ description: Build high-craft, 100% natively editable PowerPoint (.pptx) present
 # slide-canvas-studio (SVG 思維 Python Canvas 簡報引擎)
 
 本 Skill 採用 **「1280×720 SVG 設計心智 ＋ 極簡 Python `SlideCanvas` 繪圖腳本直出原生 OpenXML ＋ Python EMU / PNG 雙重驗收」** 的高內聚架構：
-- **零 YAML 模板、零座標心算瓶頸**：LLM 以熟悉的 `1280×720` SVG 設計師視角思考構圖比例、負空間與層次，直接使用 Python `for` 迴圈、`polar()`、`c.cols()`、`c.card()`、`c.text_auto()`、貝茲曲線與 Tailwind 設計 Token（`"sky-500/15"`、`#HEX@opacity`、`grad(...)`）直出原生可編輯 `.pptx`，兼具 SVG 美學上限與極低 Token 消耗。
+- **零 YAML 模板、零座標心算瓶頸**：LLM 以熟悉的 `1280×720` SVG 設計師視角思考構圖比例、負空間與層次，依每頁語意自由搭配 `c.cols()`/`c.card()`、`c.connect()` 拓樸連線、`c.curve()`/`c.bezier()` 趨勢曲線、`c.donut()`/`polar()` 比例圖、`c.table()` 與 `c.text_auto()`，並透過 Tailwind 設計 Token（`"sky-500/15"`、`#HEX@opacity`、`grad(...)`）直出原生可編輯 `.pptx`。
 - **最低限度護欄**：`styles/` 僅在**使用者明確指定風格時才載入**；否則由 LLM 於整份簡報開頭執行一次 **Step 0: Deck-Level Art Direction Synthesis** 宣告全局 `THEME = SlideTheme(...)`，並由 `SlideCanvas` 與 `TokenResolver.ensure_contrast()` 在繪圖當下自動把關 WCAG 對比度與安全留白。
 
 ---
@@ -15,7 +15,7 @@ description: Build high-craft, 100% natively editable PowerPoint (.pptx) present
 
 1. **Step 0 全局藝術指導（Deck-Level Art Direction Synthesis）**：每份簡報**開頭僅執行一次**，依主題領域與受眾宣告單一全局 `THEME = SlideTheme(...)`（參閱 `design-framework/color-and-type-constraints.md`）。**全份簡報嚴禁中途切換色票主題**；跨頁視覺變化應透過不對稱 `c.cols(..., weights=...)` 欄位權重、`c.card(variant=...)`（`"default"` / `"accent"` / `"subtle"` / `"dashed"`）與留白節奏來創造。
 2. **按需載入（On-Demand Loading）**：依目前階段僅讀取對應指南，避免無意義塞滿上下文。
-3. **用 `text_auto()`、`card()` 與 `cols()` / `polar()` 杜絕碰撞**：不靠心算估算文字行高與多欄寬度；垂直堆疊一律使用 `y = c.text_auto(...) + gap` 或 `inner = c.card(...)` 回傳的剩餘內框座標推進。
+3. **用 `text_auto()`、`card()`、`cols()` 與 `connect()` 杜絕碰撞**：不靠心算估算文字行高、多欄寬度與箭頭端點；垂直堆疊一律使用 `y = c.text_auto(...) + gap` 或 `inner = c.card(...)` 回傳的剩餘內框座標推進，連線直接使用 `id=` + `c.connect()`。
 4. **100% 原生直出 + 單頁秒級迭代**：簡報腳本（`design/build_deck.py`）每頁寫為獨立函式 `def slide_N(c, total):`，需要微調第 `N` 頁時直接執行 `python3 design/build_deck.py --slide N` 局部重建。
 5. **雙重驗收閉環**：建置完成後執行 `scripts/dump_slide_layout.py`（Python 原始 EMU 越界/重疊/溢框/對比度檢查）＋ `scripts/render_single_slide.py`（LibreOffice / macOS QuickLook 單頁轉 PNG，並以讀圖實際視覺審計，最多收斂 2 輪）。
 

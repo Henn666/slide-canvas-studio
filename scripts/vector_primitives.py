@@ -7,6 +7,7 @@ import math
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from pptx.enum.shapes import MSO_CONNECTOR
 from pptx.util import Emu
 
 # ---------------------------------------------------------------------------
@@ -330,14 +331,13 @@ class VectorPrimitivesMixin:
         stroke: Any = "border:1",
         name: Optional[str] = None,
     ) -> Any:
-        """Draw a straight stroked line segment between (x1, y1) and (x2, y2)."""
-        return self._build_poly(
-            [(x1, y1), (x2, y2)],
-            False,
-            "none",
-            stroke,
-            name or f"vec_line_{self._next_id()}",
+        """Draw a straight stroked line segment via native OpenXML connector (handles all quadrants)."""
+        shp = self.slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT, px(x1), px(y1), px(x2), px(y2)
         )
+        shp.name = name or f"vec_line_{self._next_id()}"
+        self._apply_style(shp, fill="none", stroke=stroke)
+        return shp
 
     def arrow(
         self,

@@ -36,4 +36,9 @@
 
 - **用動態 `bottom_y` 堆疊文字**：卡片內部元素垂直堆疊一律寫為 `yt = c.text_auto(...)` → `c.text_auto(..., yt + gap, ...)`，不寫死 Y 座標，確保內容長短變化時絕不重疊或溢框。
 - **極簡輕薄邊框（Subtle Glass）**：避免高飽和厚重實線框（Neo-Brutalism 風格除外）；容器優先採低透明度填充（`@0.06 ~ @0.12`）與淡邊線（`@0.25 ~ @0.45:0.75`），或直接去框以字級與細線區隔。
-- **反單調卡片**：若頁面是數據趨勢、時間軸、架構拓樸或佔比圖表，應結合 [api-diagrams-and-connectors.md](file:///Users/user/.gemini/config/skills/slide-canvas-studio/design-framework/api-diagrams-and-connectors.md) 的 `connect()` / `donut()` / `curve()` / `polar()` 表達，不要把所有資訊都塞進三欄均分方塊。
+- **語意驅動構圖選型（Form Follows Meaning）**：依該頁真正想傳達的語意選擇最適合的視覺形式，並避免相鄰兩頁重複完全相同的構圖：
+  - **比較／矩陣** → `c.table()` 或 Bento `c.grid()`
+  - **趨勢／消長** → `c.curve()` 平滑折線或填色面積圖（Filled Spline Area）
+  - **流程／因果／分支** → `id=` + `c.connect()`（`ortho` / `bezier`）
+  - **週期／佔比** → `c.donut()` / `polar()`
+  - **核心洞察／強結論** → 開放畫布巨型 KPI（`c.stat()`）搭配細線與負空間，無需強加矩形外框
